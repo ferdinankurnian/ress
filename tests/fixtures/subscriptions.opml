@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="1.0">
+<head>
+<title>Your Feed List</title>
+</head>
+<body>
+<outline text="News">
+<outline text="Ferdinan Iydheko" type="rss" xmlUrl="https://iydheko.dev/rss.xml"/>
+</outline>
+<outline text="Technology">
+<outline text="Nerd Snipe with Theo and Ben" type="rss" xmlUrl="https://nerdsnipe.link/rss"/>
+<outline text="Release notes from desktop" type="rss" xmlUrl="https://github.com/zen-browser/desktop/releases.atom"/>
+<outline text="Release notes from helium" type="rss" xmlUrl="https://github.com/imputnet/helium/releases.atom"/>
+<outline text="shadcn/ui Changelog" type="rss" xmlUrl="https://ui.shadcn.com/rss.xml"/>
+</outline>
+</body>
+</opml>

@@ -1,0 +1,32 @@
+/* Hallmark · shape: app screen · genre: editorial · theme: Garden (deal 1/3, Ress yellow by request) · nav: four bottom tabs · signature: personal daily edition · states: loading empty error full · v2.0.0 */
+/* Hallmark · pre-emit critique: native reading surface; web-only floor rules below; no animation or invented articles. */
+@import url("./tokens.css");
+html,
+body {
+  overflow-x: clip;
+}
+:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+[role="button"]:active,
+[role="tab"]:active {
+  opacity: 0.6;
+}
+:disabled,
+[aria-disabled="true"] {
+  opacity: 0.4;
+}
+::selection {
+  background: var(--color-accent-2);
+  color: var(--color-ink);
+}
+html {
+  scrollbar-color: var(--color-muted) var(--color-paper);
+}
