@@ -1,69 +1,64 @@
-# Ress
+<p align="center">
+  <img src="assets/icon.png" alt="Ress icon" width="96" height="96" />
+</p>
 
-A personal RSS reader with a yellow paper identity, built with Expo, React Native and TypeScript. Android first.
+<h1 align="center">Ress</h1>
 
-## What works
+<p align="center">A personal RSS reader for Android, with a little yellow paper feel.</p>
 
-- Empty on first install. Add only the sources you choose; no bundled subscriptions or recommendations.
-- RSS 2.0 and Atom fetching, newest-first sorting, source circles, pull to refresh, favicons, thumbnails and relative timestamps. Saved articles have their own search.
-- An offline text reader, persistent bookmarks, read state, sharing and original-site links.
-- OPML import with nested categories and deduplication. Add and edit sources in sheets; swipe left to remove.
-- A resizable Android home widget, source selection, unread-only mode, manual refresh and article deep links.
-- Widget refresh scheduled every 30 minutes. Android battery restrictions can delay it.
+<!-- Replace this image with one thumbnail containing 3–4 phone screenshots.
+     Suggested screens: feed, reader, sources, and Android home widget. -->
+![Space reserved for Ress screenshots](docs/images/thumbnail-placeholder.svg)
 
-Subscriptions and cached articles stay on the device. Requests go directly to feed publishers. No account, backend, tracking or API key.
+Ress keeps the sites you follow in one place. Add your feeds, read the latest posts, and save the ones you want to come back to. It starts empty, so every source is yours to choose.
 
-## Run
+No account, backend, or API key required. Built with Expo, React Native, and TypeScript.
+
+## Reading
+
+- Follow RSS and Atom feeds in a newest-first timeline.
+- Read cached articles offline and keep bookmarks in a searchable saved list.
+- Pick a reading text size and use a light, dark, or device theme.
+- Share an article or open it on the original website.
+
+The reader uses the text included in each feed. If a publisher only sends an excerpt, you'll need to open the original page for the rest. Feed images appear in article cards and the reader; full HTML formatting stays on the publisher's site.
+
+## Your sources
+
+Add feed URLs individually or import an OPML file from another reader. You can edit source names and icons, drag sources into your preferred order, and swipe to remove them.
+
+OPML export includes feed titles and categories, so you can take your subscriptions elsewhere. It doesn't include bookmarks or reading history. On Android, exports are saved to the Download folder.
+
+## Android widget
+
+Put the latest 10 posts on your home screen with a resizable widget. Each widget has its own source and unread filters. Tap a headline to read it in Ress, or refresh directly from the widget.
+
+Add it through **Settings → Widget → Add widget to home screen**, or your launcher's widget picker. Refreshes are scheduled every 30 minutes, though Android's battery restrictions can delay them.
+
+## Storage and privacy
+
+Subscriptions, bookmarks, reading history, and cached articles stay on your device. Feed requests go directly to publishers. Ress has no tracking or sync service.
+
+Website icon previews use Google's favicon service. Icons you upload stay on your device.
+
+The cache keeps the 600 most recent articles plus saved articles. If some feeds fail to refresh, their cached articles remain available.
+
+## Local development
+
+Install [Bun](https://bun.sh), then run:
 
 ```sh
 bun install
 bun start
 ```
 
-Expo Go can run the reader; the Android widget requires a native development build or standalone APK. The app guards the missing widget module in Expo Go. Web is useful for UI development, but publishers may block browser RSS fetches through CORS; native fetches do not have this browser restriction. iOS can run the reader; an iOS widget is not included.
+Expo Go can run the reader. The Android widget and saving OPML exports to Download require a native build with the project's native modules included.
 
-## Install on Android
-
-With Android SDK and Java configured:
-
-```sh
-bunx expo prebuild --platform android
-bunx expo run:android
-```
-
-Or build a standalone APK with EAS (requires your Expo account):
-
-```sh
-EAS_NO_VCS=1 EAS_PROJECT_ROOT="$PWD" bunx eas-cli build --platform android --profile preview
-```
-
-Run the EAS command from the `ress` directory. The explicit root prevents EAS from packaging the parent `~/Projects` Git repository and unrelated projects. `.easignore` excludes generated native directories so EAS regenerates them from the Expo config.
-
-After installation, open Ress once and refresh the feeds. In Settings tap **Add to home screen**, or long-press your launcher, choose **Widgets**, then **Ress**. Tap a headline to open the reading room; tap Refresh to update the widget.
-
-For a local standalone build, without starting a dev server:
-
-```sh
-bunx expo prebuild --platform android --no-install
-cd android
-./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --max-workers=2
-```
-
-The generated project's default release signing is a local debug key: suitable for personal installation, not Play Store publishing. Configure your production signing before distribution.
+Ress is a mobile app for Android.
 
 ## Checks
 
 ```sh
 bun run typecheck
 bun test
-bunx expo export --platform android --platform web
-bun scripts/check-ui.ts
 ```
-
-The UI check uses the static web export through Playwright request interception, without a server. It checks an empty install, adds a test feed, checks source editing, reader/bookmark/search flows and tab rounding and saves screenshots under `.hallmark/screenshots`. Install its browser with `bunx playwright install chromium` first. Its fixtures are verification artifacts, not shipped articles.
-
-## Details
-
-The feed body is rendered as readable plain text, not arbitrary HTML. Feed images appear in article cards, the reader and the widget; full formatting stays on the original website. An empty feed is valid: `iydheko.dev/rss.xml` had no entries when checked. Cached articles survive partial network failures. The cache retains 600 recent stories plus all saved stories.
-
-`src/data/feeds.ts` owns parsing. `src/data/store.ts` owns persistence and refresh. `src/widget` owns native rendering and headless updates. `src/ui/theme.ts` declares native colour and font tokens. The OPML parsing fixture is in `tests/fixtures/subscriptions.opml` and is not shipped.

@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
   mergeArticles,
+  isGitHubRelease,
   parseFeed,
   parseOpml,
   plain,
   safeUrl,
+  googleFaviconUrl,
   relativeTime,
 } from "../src/data/feeds";
 const source = {
@@ -133,4 +135,20 @@ test("relative timestamps handle plural, future and missing dates", () => {
   expect(relativeTime("2026-10-28T11:00:00Z", now)).toBe("1 hour ago");
   expect(relativeTime("2026-10-29T00:00:00Z", now)).toBe("just now");
   expect(relativeTime("", now)).toBe("");
+});
+
+test("favicon previews use the URL origin and reject non-web URLs", () => {
+  expect(googleFaviconUrl("https://github.com/owner/repo/releases.atom")).toBe(
+    "https://www.google.com/s2/favicons?domain_url=https%3A%2F%2Fgithub.com&sz=128",
+  );
+  expect(googleFaviconUrl("javascript:bad")).toBe("");
+  expect(googleFaviconUrl("")).toBe("");
+});
+
+ test("recognizes GitHub release links without treating other posts as releases", () => {
+  expect(isGitHubRelease("https://github.com/zen-browser/desktop/releases/tag/1.23.4b")).toBe(true);
+  expect(isGitHubRelease("https://github.com/owner/repo/releases/tag/v1%2Fbeta")).toBe(true);
+  expect(isGitHubRelease("https://github.com/owner/repo/issues/1")).toBe(false);
+  expect(isGitHubRelease("https://example.com/owner/repo/releases/tag/v1")).toBe(false);
+  expect(isGitHubRelease("invalid")).toBe(false);
 });

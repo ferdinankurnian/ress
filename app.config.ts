@@ -18,13 +18,20 @@ const config: ExpoConfig = {
     package: "dev.iydheko.ress",
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
+      monochromeImage: "./assets/android-icon-monochrome.png",
       backgroundColor: "#F5D547",
     },
   },
   ios: { bundleIdentifier: "dev.iydheko.ress", supportsTablet: true },
   plugins: [
     "expo-font",
+    ["expo-splash-screen", {
+      image: "./assets/adaptive-icon.png",
+      imageWidth: 200,
+      backgroundColor: "#F5D547",
+    }],
     "./plugins/with-widget-placeholder.cjs",
+    "./plugins/with-downloads.cjs",
     "expo-document-picker",
     [
       "expo-build-properties",
@@ -49,11 +56,17 @@ const config: ExpoConfig = {
     [
       "react-native-android-widget",
       {
+        fonts: [
+          "./node_modules/@expo-google-fonts/vollkorn/600SemiBold/Vollkorn_600SemiBold.ttf",
+          "./node_modules/@expo-google-fonts/hanken-grotesk/400Regular/HankenGrotesk_400Regular.ttf",
+          "./node_modules/@expo-google-fonts/hanken-grotesk/700Bold/HankenGrotesk_700Bold.ttf",
+        ],
         widgets: [
           {
             name: "RessDigest",
-            label: "Ress — your daily edition",
-            description: "The latest from your feeds, right at home.",
+            widgetFeatures: "reconfigurable",
+            label: "Ress — latest 10 posts",
+            description: "Your 10 newest posts from your selected feeds, right at home.",
             minWidth: "250dp",
             minHeight: "180dp",
             targetCellWidth: 4,

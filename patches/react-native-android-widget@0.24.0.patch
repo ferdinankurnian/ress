@@ -1,0 +1,313 @@
+diff --git a/node_modules/react-native-android-widget/.bun-tag-1c2c5c30439fcbfd b/.bun-tag-1c2c5c30439fcbfd
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/react-native-android-widget/.bun-tag-1ed183e4c6af899e b/.bun-tag-1ed183e4c6af899e
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/react-native-android-widget/.bun-tag-2040e6ff3998d6fd b/.bun-tag-2040e6ff3998d6fd
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/react-native-android-widget/.bun-tag-219186f9a0582aea b/.bun-tag-219186f9a0582aea
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/react-native-android-widget/.bun-tag-35680db144d697ba b/.bun-tag-35680db144d697ba
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/react-native-android-widget/.bun-tag-4a789b2c86fcadc3 b/.bun-tag-4a789b2c86fcadc3
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/react-native-android-widget/.bun-tag-55fec07252891cbf b/.bun-tag-55fec07252891cbf
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/react-native-android-widget/.bun-tag-5c95eecca1e28f53 b/.bun-tag-5c95eecca1e28f53
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/react-native-android-widget/.bun-tag-84869a0781f42807 b/.bun-tag-84869a0781f42807
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/react-native-android-widget/.bun-tag-c7bdbc8da869c5df b/.bun-tag-c7bdbc8da869c5df
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/react-native-android-widget/.bun-tag-cd2b63fdf648f565 b/.bun-tag-cd2b63fdf648f565
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
+index a4d0115e0f54775cf50a53d4959b723b9a249807..359ea6f42419622fdacb21e30c92cd46f83b85c7 100644
+--- a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
++++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
+@@ -60,6 +60,10 @@ public class RNWidget {
+     }
+ 
+     public void drawWidget(int widgetId) throws Exception {
++        if ("RessDigest".equals(widgetName)) {
++            RessNativeWidget.draw(appContext, widgetId, widgetName, config);
++            return;
++        }
+         ReadableMap light = config.getMap("light");
+         ReadableMap dark = config.getMap("dark");
+ 
+diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
+index 7b896b44c29071337423dcba54983f5ed1e7555d..81a7802e175be00a1e31fbc975c6fc38954d593d 100644
+--- a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
++++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
+@@ -40,6 +40,7 @@ public class RNWidgetCollectionService extends RemoteViewsService {
+ 
+     @Override
+     public RemoteViewsFactory onGetViewFactory(Intent intent) {
++        if (intent.hasExtra("ressRows")) return new RessNativeWidget.Factory(getApplicationContext(), intent);
+         return new ListRemoteViewsFactory(this.getApplicationContext(), intent);
+     }
+ }
+diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
+index 9ca48435459bce6aa90fe87a68de3f3a4c7842fe..2cc7fcf80776c79b7ef02a54f32840eeccf70b12 100644
+--- a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
++++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
+@@ -148,6 +148,7 @@ public class RNWidgetProvider extends AppWidgetProvider {
+ 
+         if (incomingIntent.hasExtra("clickAction")) {
+             Bundle clickActionData = incomingIntent.getBundleExtra("clickActionData");
++            if (clickActionData == null) clickActionData = new Bundle();
+             additionalData = new Data.Builder()
+                 .putString("clickAction", incomingIntent.getStringExtra("clickAction"))
+                 .putString("clickActionData", new JSONObject(Arguments.fromBundle(clickActionData).toHashMap()).toString())
+diff --git a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RessNativeWidget.java b/android/src/main/java/com/reactnativeandroidwidget/RessNativeWidget.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..ac391b8e66920afcd352321a975bea21398b050a
+--- /dev/null
++++ b/android/src/main/java/com/reactnativeandroidwidget/RessNativeWidget.java
+@@ -0,0 +1,188 @@
++package com.reactnativeandroidwidget;
++
++import android.app.PendingIntent;
++import android.appwidget.AppWidgetManager;
++import android.content.ComponentName;
++import android.content.Context;
++import android.content.Intent;
++import android.graphics.Bitmap;
++import android.graphics.Canvas;
++import android.graphics.Color;
++import android.net.Uri;
++import android.os.Bundle;
++import android.view.View;
++import android.widget.RemoteViews;
++import android.widget.RemoteViewsService;
++import com.facebook.react.bridge.ReactApplicationContext;
++import com.facebook.react.bridge.ReadableArray;
++import com.facebook.react.bridge.ReadableMap;
++import com.reactnativeandroidwidget.builder.widget.ImageWidget;
++import com.reactnativeandroidwidget.builder.widget.SvgWidget;
++import java.util.ArrayList;
++import java.util.UUID;
++
++/** Ress's native template: the launcher measures text, rows and hit targets together.
++ * Only individual images are rasterized; a whole row is never scaled as a bitmap.
++ * Resources are supplied by Ress's Expo config plugin, not generated project edits.
++ */
++public final class RessNativeWidget {
++    static int resource(Context c, String type, String name) {
++        int id = c.getResources().getIdentifier(name, type, c.getPackageName());
++        if (id == 0) throw new IllegalStateException("Missing widget resource: " + name);
++        return id;
++    }
++    static int id(Context c, String name) { return resource(c, "id", "ress_" + name); }
++    static RemoteViews layout(Context c, String name) {
++        return new RemoteViews(c.getPackageName(), resource(c, "layout", "ress_native_" + name));
++    }
++    static ReadableMap child(ReadableMap node, int index) { return node.getArray("children").getMap(index); }
++    static ReadableMap props(ReadableMap node) { return node.getMap("props"); }
++    static String text(ReadableMap node) { return props(node).getString("text"); }
++    static int color(ReadableMap node) { return Color.parseColor(props(node).getString("color")); }
++
++    public static void draw(ReactApplicationContext c, int widgetId, String name, ReadableMap config) {
++        RemoteViews root = layout(c, "widget");
++        root.removeAllViews(id(c, "light"));
++        root.removeAllViews(id(c, "dark"));
++        ReadableMap light = config.getMap("light");
++        ReadableMap dark = config.getMap("dark");
++        ArrayList<Intent> adapters = new ArrayList<>();
++        root.addView(id(c, "light"), content(c, widgetId, name, light, "light", adapters));
++        root.addView(id(c, "dark"), content(c, widgetId, name, dark == null ? light : dark, "dark", adapters));
++        // Adapter actions must execute on the top-level RemoteViews: nested
++        // addView layouts are not hosted directly by AppWidgetHostView.
++        for (Intent adapter : adapters) {
++            int list = id(c, "list_" + adapter.getStringExtra("ressMode"));
++            root.setRemoteAdapter(list, adapter);
++            root.setPendingIntentTemplate(list, action(c, widgetId, name, "OPEN_URI", true));
++        }
++        AppWidgetManager.getInstance(c).updateAppWidget(widgetId, root);
++    }
++
++    private static RemoteViews content(ReactApplicationContext c, int widgetId, String name, ReadableMap tree, String mode, ArrayList<Intent> adapters) {
++        RemoteViews view = layout(c, "content_" + mode);
++        boolean dark = "#1B1C17".equalsIgnoreCase(props(tree).getString("backgroundColor"));
++        view.setInt(id(c, "surface"), "setBackgroundResource", resource(c, "drawable", "ress_native_" + (dark ? "dark" : "light")));
++        ReadableMap header = child(tree, 0);
++        ReadableMap brand = child(child(header, 0), 0);
++        ReadableMap status = child(header, 1);
++        view.setTextViewText(id(c, "brand"), text(brand));
++        view.setTextColor(id(c, "brand"), color(brand));
++        view.setTextViewText(id(c, "status"), text(status));
++        view.setTextColor(id(c, "status"), color(status));
++        ReadableMap icon = child(child(header, 2), 0);
++        view.setImageViewBitmap(id(c, "refresh"), bitmap(c, icon, 22, 22));
++        view.setOnClickPendingIntent(id(c, "refresh"), action(c, widgetId, name, "REFRESH", false));
++        view.setOnClickPendingIntent(id(c, "brand"), action(c, widgetId, name, "OPEN_APP", false));
++        ReadableMap body = child(tree, 1);
++        if ("TextWidget".equals(body.getString("type"))) {
++            view.setViewVisibility(id(c, "list_" + mode), View.GONE);
++            view.setViewVisibility(id(c, "empty"), View.VISIBLE);
++            view.setTextColor(id(c, "empty"), color(body));
++            view.setOnClickPendingIntent(id(c, "empty"), action(c, widgetId, name, "OPEN_APP", false));
++            return view;
++        }
++        ReadableArray articles = child(body, 0).getArray("children");
++        ArrayList<Bundle> rows = new ArrayList<>();
++        RNWidgetImageProvider.deleteCollectionImages(c, widgetId, 0, mode);
++        for (int i = 0; i < Math.min(10, articles.size()); i++) {
++            ReadableMap article = articles.getMap(i);
++            ReadableMap sourceRow = child(article, 0);
++            ReadableMap headlineRow = child(article, 1);
++            ReadableMap title = child(child(headlineRow, 0), 0);
++            ReadableMap date = child(child(headlineRow, 0), 1);
++            ReadableArray sourceChildren = sourceRow.getArray("children");
++            ReadableMap source = sourceChildren.getMap(sourceChildren.size() - 1);
++            Bundle row = new Bundle();
++            row.putString("title", text(title));
++            row.putString("source", text(source));
++            row.putString("date", text(date));
++            row.putInt("ink", color(title));
++            row.putInt("muted", color(source));
++            row.putInt("rule", Color.parseColor(props(article).getMap("borderColor").getString("bottom")));
++            row.putBoolean("last", i == Math.min(10, articles.size()) - 1);
++            row.putInt("widgetId", widgetId);
++            row.putString("uri", props(article).getMap("clickActionData").getString("uri"));
++            String prefix = "widget_" + widgetId + "_mode_" + mode + "_collection_0_" + i;
++            if (sourceChildren.size() > 1) row.putString("favicon", save(c, prefix, child(sourceRow, 0), 16, 16));
++            if (headlineRow.getArray("children").size() > 1) {
++                ReadableMap image = child(headlineRow, 1);
++                int width = props(image).getInt("imageWidth");
++                int height = props(image).getInt("imageHeight");
++                row.putInt("width", width);
++                row.putInt("height", height);
++                row.putString("image", save(c, prefix, image, width, height));
++            }
++            rows.add(row);
++        }
++        Intent adapter = new Intent(c, RNWidgetCollectionService.class);
++        adapter.setData(Uri.parse("ress-widget://" + widgetId + "/" + mode + "/" + UUID.randomUUID()));
++        adapter.putParcelableArrayListExtra("ressRows", rows);
++        adapter.putExtra("ressMode", mode);
++        adapters.add(adapter);
++        return view;
++    }
++
++    private static PendingIntent action(Context c, int widgetId, String name, String action, boolean mutable) {
++        Intent intent = new Intent(c.getPackageName() + ".WIDGET_CLICK");
++        intent.setComponent(new ComponentName(c, RNWidgetUtil.getWidgetProviderClassName(c, name)));
++        intent.setData(Uri.parse("ress-widget://" + widgetId + "/" + action));
++        intent.putExtra("widgetId", widgetId);
++        intent.putExtra("clickAction", action);
++        if (!mutable) intent.putExtra("clickActionData", new Bundle());
++        return PendingIntent.getBroadcast(c, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT |
++            (mutable ? PendingIntent.FLAG_MUTABLE : PendingIntent.FLAG_IMMUTABLE));
++    }
++
++    private static Bitmap bitmap(ReactApplicationContext c, ReadableMap node, int width, int height) {
++        View v = "SvgWidget".equals(node.getString("type"))
++            ? new SvgWidget(c, props(node)).getView() : new ImageWidget(c, props(node)).getView();
++        int w = RNWidgetUtil.dpToPx(c, width), h = RNWidgetUtil.dpToPx(c, height);
++        v.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY));
++        v.layout(0, 0, w, h);
++        Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
++        v.draw(new Canvas(b));
++        return b;
++    }
++    private static String save(ReactApplicationContext c, String prefix, ReadableMap image, int w, int h) {
++        String file = RNWidgetImageProvider.writeImage(c, prefix, bitmap(c, image, w, h));
++        return RNWidgetImageProvider.getImageUri(c, file).toString();
++    }
++
++    static final class Factory implements RemoteViewsService.RemoteViewsFactory {
++        private final Context c;
++        private final ArrayList<Bundle> rows;
++        Factory(Context context, Intent intent) { c = context; rows = intent.getParcelableArrayListExtra("ressRows"); }
++        public void onCreate() {}
++        public void onDestroy() {}
++        public void onDataSetChanged() {}
++        public int getCount() { return rows.size(); }
++        public int getViewTypeCount() { return 2; }
++        public long getItemId(int p) { return p; }
++        public boolean hasStableIds() { return false; }
++        public RemoteViews getLoadingView() { return null; }
++        public RemoteViews getViewAt(int p) {
++            if (p < 0 || p >= rows.size()) return null;
++            Bundle row = rows.get(p);
++            RemoteViews view = layout(c, row.getInt("width") == row.getInt("height") && row.containsKey("image") ? "row_square" : "row");
++            for (String field : new String[]{"source", "title", "date"}) {
++                view.setTextViewText(id(c, field), row.getString(field));
++                view.setTextColor(id(c, field), row.getInt("title".equals(field) ? "ink" : "muted"));
++            }
++            image(view, "favicon", row.getString("favicon"));
++            image(view, "thumbnail", row.getString("image"));
++            view.setInt(id(c, "separator"), "setBackgroundColor", row.getInt("rule"));
++            view.setViewVisibility(id(c, "separator"), row.getBoolean("last") ? View.GONE : View.VISIBLE);
++            Bundle data = new Bundle();
++            data.putString("uri", row.getString("uri"));
++            Intent fill = new Intent();
++            fill.putExtra("clickActionData", data);
++            view.setOnClickFillInIntent(id(c, "row"), fill);
++            return view;
++        }
++        private void image(RemoteViews view, String name, String uri) {
++            view.setViewVisibility(id(c, name), uri == null ? View.GONE : View.VISIBLE);
++            if (uri != null) view.setImageViewUri(id(c, name), Uri.parse(uri));
++        }
++    }
++}
+diff --git a/android/src/main/java/com/reactnativeandroidwidget/builder/widget/ImageWidget.java b/android/src/main/java/com/reactnativeandroidwidget/builder/widget/ImageWidget.java
+index 16158230e362e9c9aae5b8647185a6a87f7000dd..a0fc5c135c6a486a6da4d62fbbce8b8c0a7c95a4 100644
+--- a/android/src/main/java/com/reactnativeandroidwidget/builder/widget/ImageWidget.java
++++ b/android/src/main/java/com/reactnativeandroidwidget/builder/widget/ImageWidget.java
+@@ -1,6 +1,10 @@
+ package com.reactnativeandroidwidget.builder.widget;
+ 
+ import android.graphics.Bitmap;
++import android.graphics.Canvas;
++import android.graphics.Paint;
++import android.graphics.Rect;
++import android.graphics.RectF;
+ import android.widget.ImageView;
+ 
+ import androidx.core.graphics.drawable.RoundedBitmapDrawable;
+@@ -49,6 +53,19 @@ public class ImageWidget extends BaseWidget<ImageView> {
+             if (bitmap == null) {
+                 return null;
+             }
++            if (props.hasKey("resizeMode") && "cover".equals(props.getString("resizeMode"))) {
++                // Crop the source at its original aspect ratio before resizing.
++                float scale = Math.max((float) width / bitmap.getWidth(), (float) height / bitmap.getHeight());
++                int cropWidth = Math.max(1, Math.min(bitmap.getWidth(), Math.round(width / scale)));
++                int cropHeight = Math.max(1, Math.min(bitmap.getHeight(), Math.round(height / scale)));
++                int left = (bitmap.getWidth() - cropWidth) / 2;
++                int top = (bitmap.getHeight() - cropHeight) / 2;
++                Bitmap result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
++                new Canvas(result).drawBitmap(bitmap,
++                    new Rect(left, top, left + cropWidth, top + cropHeight),
++                    new RectF(0, 0, width, height), new Paint(Paint.FILTER_BITMAP_FLAG));
++                return result;
++            }
+             return Bitmap.createScaledBitmap(bitmap, width, height, true);
+         } catch (IOException e) {
+             e.printStackTrace();
+diff --git a/android/src/main/java/com/reactnativeandroidwidget/builder/widget/TextWidget.java b/android/src/main/java/com/reactnativeandroidwidget/builder/widget/TextWidget.java
+index 1f9aa00b75518a93bf20ad8922cc3473c3396007..a379b34e1baa8192492dfbe1b6a924b247312830 100644
+--- a/android/src/main/java/com/reactnativeandroidwidget/builder/widget/TextWidget.java
++++ b/android/src/main/java/com/reactnativeandroidwidget/builder/widget/TextWidget.java
+@@ -29,6 +29,7 @@ public class TextWidget extends BaseWidget<TextView> {
+ 
+     @Override
+     public void applyProps() {
++        view.setIncludeFontPadding(false);
+         view.setText(getString("text", ""));
+         view.setTextSize(getFontSizeUnit(), getFontSize());
+         view.setTextColor(Color.parseColor(getString("color", "#000000")));

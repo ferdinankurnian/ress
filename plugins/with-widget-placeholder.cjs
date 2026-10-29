@@ -16,7 +16,7 @@ module.exports = (config) =>
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="20dp"
+        android:padding="16dp"
         android:background="@drawable/ress_widget_background">
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="ress" android:textSize="30sp" android:fontFamily="serif"
@@ -33,6 +33,15 @@ module.exports = (config) =>
         mod.modRequest.platformProjectRoot,
         "app/src/main/res",
       );
+      // Native text and image views are measured by the launcher at its actual
+      // width; these resources replace the bitmap-based Ress rendering path.
+      await fs.cp(path.join(__dirname, "widget/res"), res, { recursive: true });
+      await fs.mkdir(path.join(res, "font"), { recursive: true });
+      for (const [source, target] of [
+        ["@expo-google-fonts/hanken-grotesk/400Regular/HankenGrotesk_400Regular.ttf", "ress_hanken.ttf"],
+        ["@expo-google-fonts/hanken-grotesk/700Bold/HankenGrotesk_700Bold.ttf", "ress_hanken_bold.ttf"],
+        ["@expo-google-fonts/vollkorn/600SemiBold/Vollkorn_600SemiBold.ttf", "ress_vollkorn.ttf"],
+      ]) await fs.copyFile(require.resolve(source), path.join(res, "font", target));
       await fs.mkdir(path.join(res, "drawable"), { recursive: true });
       for (const variant of ["layout", "layout-night"]) {
         const original = await fs.readFile(
@@ -43,7 +52,10 @@ module.exports = (config) =>
         await fs.mkdir(path.join(res, variant), { recursive: true });
         await fs.writeFile(
           path.join(res, variant, "rn_widget.xml"),
-          original.slice(0, rootEnd) + placeholder + original.slice(rootEnd),
+          // The URI bitmap must fill the host bounds. Matrix rendering leaves
+          // exposed placeholder strips when the launcher/display scales it.
+          (original.slice(0, rootEnd) + placeholder + original.slice(rootEnd))
+            .replaceAll('android:scaleType="matrix"', 'android:scaleType="fitXY"'),
         );
       }
       await fs.writeFile(

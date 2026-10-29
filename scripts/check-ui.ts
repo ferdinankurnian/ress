@@ -61,6 +61,12 @@ await page.route("https://one.test/**", async (route) =>
     headers: { "access-control-allow-origin": "*" },
   }),
 );
+await page.route("https://www.google.com/s2/favicons**", async (route) =>
+  route.fulfill({
+    body: await readFile("assets/favicon.png"),
+    contentType: "image/png",
+  }),
+);
 for (const feed of feeds)
   await page.route(feed.source.url, (route) =>
     route.fulfill({
@@ -83,6 +89,24 @@ await expect(page.getByLabel("Close source menu")).toBeHidden();
 await expect(page.getByRole("textbox", { name: "Feed URL" })).toBeVisible();
 await page.getByRole("textbox", { name: "Source name" }).fill(sources[0].title);
 await page.getByRole("textbox", { name: "Feed URL" }).fill(sources[0].url);
+await expect
+  .poll(() =>
+    page
+      .getByRole("button", { name: "Upload source icon", exact: true })
+      .locator("img")
+      .getAttribute("src"),
+  )
+  .toContain("google.com/s2/favicons");
+const chooserPromise = page.waitForEvent("filechooser");
+await page
+  .getByRole("button", { name: "Upload source icon", exact: true })
+  .click();
+const chooser = await chooserPromise;
+await chooser.setFiles("assets/favicon.png");
+await expect(
+  page.getByRole("button", { name: "Use website icon", exact: true }),
+).toBeVisible();
+
 await page.getByRole("button", { name: "Add feed", exact: true }).click();
 await expect(
   page.getByRole("button", { name: `Edit ${sources[0].title}` }),
@@ -132,6 +156,37 @@ await expect(
 ).toHaveCount(0);
 await expect(page.getByLabel("Article image")).toBeVisible();
 await page.screenshot({ path: `${output}/feed.png` });
+await expect(page.getByTestId("page-header")).toHaveCSS(
+  "border-bottom-color",
+  "rgba(0, 0, 0, 0)",
+);
+await page.getByRole("button", { name: "All", exact: true }).click();
+await page
+  .getByRole("button", { name: "Read Story 1", exact: true })
+  .evaluate((el) => {
+    let parent = el.parentElement;
+    while (parent && getComputedStyle(parent).overflowY !== "auto")
+      parent = parent.parentElement;
+    if (parent) parent.scrollTop = 150;
+  });
+await expect(page.getByTestId("page-header")).toHaveCSS(
+  "border-bottom-color",
+  "rgb(213, 213, 197)",
+);
+await page
+  .getByRole("button", { name: "Read Story 1", exact: true })
+  .evaluate((el) => {
+    let parent = el.parentElement;
+    while (parent && getComputedStyle(parent).overflowY !== "auto")
+      parent = parent.parentElement;
+    if (parent) parent.scrollTop = 0;
+  });
+await expect(page.getByTestId("page-header")).toHaveCSS(
+  "border-bottom-color",
+  "rgba(0, 0, 0, 0)",
+);
+await page.getByRole("button", { name: "Renamed source", exact: true }).click();
+
 await page
   .getByRole("button", { name: "Save article", exact: true })
   .first()
@@ -144,7 +199,7 @@ await expect(
   page.getByRole("button", { name: "Read Story 1", exact: true }),
 ).toBeVisible();
 await page.getByRole("button", { name: "Read Story 1", exact: true }).click();
-await expect(page.getByText("The reading room", { exact: true })).toBeVisible();
+await expect(page.getByRole("button", { name: "Back to stories", exact: true })).toBeVisible();
 await page.screenshot({ path: `${output}/reader.png` });
 await page
   .getByRole("button", { name: "Back to stories", exact: true })
@@ -164,9 +219,42 @@ await expect(
   page.getByText("No stories match.", { exact: true }),
 ).toBeVisible();
 await page.getByRole("tab", { name: "Settings", exact: true }).click();
-await expect(page.getByText("Reading", { exact: true })).toBeVisible();
+await expect(
+  page.getByRole("button", { name: "Open Text size", exact: true }),
+).toBeVisible();
 await expect(page.getByText("Widget preview", { exact: true })).toHaveCount(0);
 await page.screenshot({ path: `${output}/settings.png` });
+await page
+  .getByRole("button", { name: "Open Text size", exact: true })
+  .click();
+await page
+  .getByRole("radio", { name: "small reading text", exact: true })
+  .click();
+await expect(
+  page.getByRole("radio", { name: "small reading text", exact: true }),
+).toBeChecked();
+await page.screenshot({ path: `${output}/accessibility.png` });
+await page
+  .getByRole("button", { name: "Back to Settings", exact: true })
+  .click();
+await page.getByRole("button", { name: "Open Widget", exact: true }).click();
+await expect(
+  page.getByText("Each widget has its own settings.", { exact: false }),
+).toBeVisible();
+await expect(
+  page.getByText("Only unread articles", { exact: true }),
+).toHaveCount(0);
+await page
+  .getByRole("button", { name: "Back to Settings", exact: true })
+  .click();
+await page.getByRole("button", { name: "Open About", exact: true }).click();
+await expect(page.getByRole("link", { name: "Ress on GitHub" })).toBeVisible();
+await expect(page.getByText("Not added yet", { exact: true })).toBeVisible();
+await page.screenshot({ path: `${output}/about.png` });
+await page
+  .getByRole("button", { name: "Back to Settings", exact: true })
+  .click();
+
 for (const tab of ["Feed", "Saved", "Sources", "Settings"]) {
   await page.getByRole("tab", { name: tab, exact: true }).click();
   const radius = await page
@@ -176,6 +264,30 @@ for (const tab of ["Feed", "Saved", "Sources", "Settings"]) {
     .evaluate((el) => getComputedStyle(el).borderRadius);
   expect(radius).toBe("20px");
 }
+// Repeated navigation must replay a vertical transition and settle fully opaque.
+for (const tab of ["Sources", "Settings", "Sources", "Settings"]) {
+  await page.getByRole("tab", { name: tab, exact: true }).evaluate((el: HTMLElement) => el.click());
+  const scene = page.getByTestId("page-scene");
+  await expect.poll(() => scene.evaluate((el) => {
+    const matrix = new DOMMatrix(getComputedStyle(el).transform);
+    return matrix.m42;
+  })).toBeGreaterThan(0);
+  expect(await scene.evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).m41)).toBe(0);
+  await expect(scene).toHaveCSS("opacity", "1");
+  if (tab === "Sources") {
+    // Hidden swipe actions cannot bleed through the page fade or pressed row.
+    for (const action of await page.getByRole("button", { name: /^Remove / }).all())
+      await expect(action.locator("..")).toHaveCSS("opacity", "0");
+  }
+}
+// Fast choices must retain the last tap and preserve other preferences.
+await page.evaluate(() => {
+  for (const label of ["Dark", "Light", "Dark", "Light", "Dark", "Light"])
+    (document.querySelector(`[aria-label="${label} theme"]`) as HTMLElement).click();
+});
+await expect(page.getByRole("radio", { name: "Light theme", exact: true })).toBeChecked();
+await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("ress.settings.v1") || "{}").theme)).toBe("light");
+await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("ress.settings.v1") || "{}").readingSize)).toBe("small");
 // Appearance choices are exclusive, persistent, and Device responds live.
 const currentScheme = () =>
   page.evaluate(() => document.documentElement.style.colorScheme);
@@ -216,6 +328,63 @@ await page.screenshot({
   path: `${output}/source-sheet-dark.png`,
   animations: "disabled",
 });
+
+const drawerTitle = page.getByText("Add feed", { exact: true }).first();
+const drawerBounds = (await drawerTitle.boundingBox())!;
+await page.mouse.move(drawerBounds.x + 20, drawerBounds.y + 10);
+await page.mouse.down();
+await page.mouse.move(drawerBounds.x + 20, drawerBounds.y + 160, { steps: 15 });
+await page.mouse.up();
+await expect(page.getByLabel("Close sheet").first()).toBeHidden();
+const secondSource = page.getByRole("button", {
+  name: "Edit Second source",
+  exact: true,
+});
+const secondBox = (await secondSource.boundingBox())!;
+await page.mouse.move(
+  secondBox.x + secondBox.width - 20,
+  secondBox.y + secondBox.height / 2,
+);
+await page.mouse.down();
+await page.mouse.move(
+  secondBox.x + secondBox.width - 120,
+  secondBox.y + secondBox.height / 2,
+  { steps: 12 },
+);
+await page.mouse.up();
+await expect
+  .poll(() =>
+    secondSource.evaluate(
+      (el) => getComputedStyle(el.parentElement!).transform,
+    ),
+  )
+  .toContain("-76");
+await page
+  .getByRole("button", { name: "Remove Second source", exact: true })
+  .click();
+await expect(page.getByText("Remove source?", { exact: true })).toBeVisible();
+await page.screenshot({ path: `${output}/confirm-remove.png`, animations: "disabled" });
+await page.getByRole("button", { name: "Cancel", exact: true }).click();
+await expect(
+  page.getByRole("button", { name: "Edit Second source", exact: true }),
+).toBeVisible();
+await expect(page.getByText("Remove source?", { exact: true })).toBeHidden();
+await page
+  .getByRole("button", { name: "Remove Second source", exact: true })
+  .click();
+await page
+  .getByRole("button", { name: "Confirm remove source", exact: true })
+  .click();
+await expect(
+  page.getByRole("button", { name: "Edit Second source", exact: true }),
+).toHaveCount(0);
+// Source icon survives sync, editing and restarting the app.
+expect(
+  await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem("ress.sources.v1") || "[]")[0].customIcon,
+  ),
+).toMatch(/^data:image\/png;base64,/);
 await writeFile(
   ".hallmark/ui-check.json",
   JSON.stringify(
@@ -234,6 +403,11 @@ await writeFile(
         "page headers",
         "settings",
         "tab radius",
+        "automatic favicon preview and custom icon persistence",
+        "reading size submenu",
+        "about links",
+        "scroll header separator",
+        "themed removal dialog",
         "dark and light themes",
         "theme persistence",
         "live device theme",

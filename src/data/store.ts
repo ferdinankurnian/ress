@@ -11,13 +11,15 @@ export type Settings = {
   theme: ThemePreference;
   widgetSource: string;
   unreadWidget: boolean;
-  largeType: boolean;
+  readingSize: "small" | "normal" | "large";
+  /** Legacy values, used only when migrating existing installations. */
+  largeType?: boolean;
 };
 export const defaults: Settings = {
   theme: "device",
   widgetSource: "all",
   unreadWidget: false,
-  largeType: false,
+  readingSize: "normal",
 };
 export const keys = {
   sources: "ress.sources.v1",
@@ -53,7 +55,12 @@ export async function loadLibrary() {
     articles,
     saved,
     read,
-    settings: { ...defaults, ...settings },
+    settings: {
+      ...defaults,
+      ...settings,
+      readingSize:
+        settings.readingSize ?? (settings.largeType ? "large" : "normal"),
+    },
     synced,
   };
 }
@@ -113,4 +120,32 @@ export function refreshFeeds() {
     inFlight = undefined;
   });
   return inFlight;
+}
+
+export type WidgetSettings = { sourceId: string; unreadOnly: boolean };
+export const widgetDefaults: WidgetSettings = {
+  sourceId: "all",
+  unreadOnly: false,
+};
+export const widgetSettingsKey = (id: number) => `ress.widget.${id}.v1`;
+export async function loadWidgetSettings(id: number): Promise<WidgetSettings> {
+  const existing = await get<WidgetSettings | null>(
+    widgetSettingsKey(id),
+    null,
+  );
+  if (existing) return { ...widgetDefaults, ...existing };
+  // Snapshot old global preferences once, then keep every instance independent.
+  const legacy = await get<Partial<Settings>>(keys.settings, {});
+  const migrated = {
+    sourceId: legacy.widgetSource ?? "all",
+    unreadOnly: legacy.unreadWidget ?? false,
+  };
+  await put(widgetSettingsKey(id), migrated);
+  return migrated;
+}
+export async function saveWidgetSettings(id: number, settings: WidgetSettings) {
+  await put(widgetSettingsKey(id), settings);
+}
+export async function removeWidgetSettings(id: number) {
+  await AsyncStorage.removeItem(widgetSettingsKey(id));
 }

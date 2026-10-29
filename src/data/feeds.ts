@@ -5,6 +5,7 @@ export type Source = {
   url: string;
   category: string;
   icon?: string;
+  customIcon?: string;
 };
 export type Article = {
   id: string;
@@ -65,6 +66,23 @@ function xml(text: string) {
     throw new Error("This is not a valid RSS, Atom, or OPML document.");
   return parser.parse(text);
 }
+export function exportOpml(sources: Source[]): string {
+  const escape = (value: string) => value.replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;",
+  })[char]!);
+  const groups = new Map<string, Source[]>();
+  for (const source of sources) {
+    const category = source.category || "Feeds";
+    groups.set(category, [...(groups.get(category) || []), source]);
+  }
+  const outlines = [...groups].map(([category, feeds]) =>
+    `    <outline text="${escape(category)}">\n${feeds.map((feed) =>
+      `      <outline type="rss" text="${escape(feed.title)}" title="${escape(feed.title)}" xmlUrl="${escape(feed.url)}" />`,
+    ).join("\n")}\n    </outline>`,
+  ).join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n  <head><title>Ress subscriptions</title></head>\n  <body>\n${outlines}\n  </body>\n</opml>\n`;
+}
+
 export function parseOpml(text: string): Source[] {
   const root = xml(text);
   if (!root.opml?.body)
@@ -89,6 +107,20 @@ export function parseOpml(text: string): Source[] {
   walk(root.opml.body.outline);
   if (!sources.length) throw new Error("No feed URLs were found in this OPML.");
   return sources;
+}
+export function isGitHubRelease(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "github.com" &&
+      /^\/[^/]+\/[^/]+\/releases\/tag\/[^/]+/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+export function googleFaviconUrl(raw: string): string {
+  const url = safeUrl(raw.trim());
+  if (!url) return "";
+  return `https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(new URL(url).origin)}&sz=128`;
 }
 export function faviconUrl(url: string): string {
   try {
