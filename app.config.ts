@@ -32,6 +32,7 @@ const config: ExpoConfig = {
     }],
     "./plugins/with-widget-placeholder.cjs",
     "./plugins/with-downloads.cjs",
+    "./plugins/with-browser.cjs",
     "expo-document-picker",
     [
       "expo-build-properties",

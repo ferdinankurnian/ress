@@ -6,20 +6,24 @@ import {
   parseFeed,
   parseFeedInfo,
 } from "./feeds";
-import type { ThemePreference } from "../ui/theme";
+import type { BackgroundPreference, ThemePreference } from "../ui/theme";
 export type Settings = {
   theme: ThemePreference;
+  background: BackgroundPreference;
   widgetSource: string;
   unreadWidget: boolean;
   readingSize: "small" | "normal" | "large";
+  readingMode: "web" | "reading";
   /** Legacy values, used only when migrating existing installations. */
   largeType?: boolean;
 };
 export const defaults: Settings = {
   theme: "device",
+  background: "warm",
   widgetSource: "all",
   unreadWidget: false,
   readingSize: "normal",
+  readingMode: "web",
 };
 export const keys = {
   sources: "ress.sources.v1",
@@ -60,6 +64,7 @@ export async function loadLibrary() {
       ...settings,
       readingSize:
         settings.readingSize ?? (settings.largeType ? "large" : "normal"),
+      readingMode: settings.readingMode === "reading" ? "reading" as const : "web" as const,
     },
     synced,
   };

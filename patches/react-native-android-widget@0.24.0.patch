@@ -1,3 +1,6 @@
+diff --git a/node_modules/react-native-android-widget/.bun-tag-1abf60386c3daf6f b/.bun-tag-1abf60386c3daf6f
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/node_modules/react-native-android-widget/.bun-tag-1c2c5c30439fcbfd b/.bun-tag-1c2c5c30439fcbfd
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
@@ -16,6 +19,9 @@ index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2
 diff --git a/node_modules/react-native-android-widget/.bun-tag-4a789b2c86fcadc3 b/.bun-tag-4a789b2c86fcadc3
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/react-native-android-widget/.bun-tag-53cfab1a0b6dcd06 b/.bun-tag-53cfab1a0b6dcd06
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/node_modules/react-native-android-widget/.bun-tag-55fec07252891cbf b/.bun-tag-55fec07252891cbf
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
@@ -29,6 +35,9 @@ diff --git a/node_modules/react-native-android-widget/.bun-tag-c7bdbc8da869c5df 
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/node_modules/react-native-android-widget/.bun-tag-cd2b63fdf648f565 b/.bun-tag-cd2b63fdf648f565
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/react-native-android-widget/.bun-tag-fc9b01da797f8bca b/.bun-tag-fc9b01da797f8bca
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
@@ -72,10 +81,10 @@ index 9ca48435459bce6aa90fe87a68de3f3a4c7842fe..2cc7fcf80776c79b7ef02a54f32840ee
                  .putString("clickActionData", new JSONObject(Arguments.fromBundle(clickActionData).toHashMap()).toString())
 diff --git a/node_modules/react-native-android-widget/android/src/main/java/com/reactnativeandroidwidget/RessNativeWidget.java b/android/src/main/java/com/reactnativeandroidwidget/RessNativeWidget.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..ac391b8e66920afcd352321a975bea21398b050a
+index 0000000000000000000000000000000000000000..c0aeeb8ecc818ca36d2ad447b5a9d13411231202
 --- /dev/null
 +++ b/android/src/main/java/com/reactnativeandroidwidget/RessNativeWidget.java
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,207 @@
 +package com.reactnativeandroidwidget;
 +
 +import android.app.PendingIntent;
@@ -139,13 +148,15 @@ index 0000000000000000000000000000000000000000..ac391b8e66920afcd352321a975bea21
 +
 +    private static RemoteViews content(ReactApplicationContext c, int widgetId, String name, ReadableMap tree, String mode, ArrayList<Intent> adapters) {
 +        RemoteViews view = layout(c, "content_" + mode);
-+        boolean dark = "#1B1C17".equalsIgnoreCase(props(tree).getString("backgroundColor"));
-+        view.setInt(id(c, "surface"), "setBackgroundResource", resource(c, "drawable", "ress_native_" + (dark ? "dark" : "light")));
++        int background = Color.parseColor(props(tree).getString("backgroundColor"));
++        String surface = background == Color.BLACK ? "plain_dark"
++            : background == Color.WHITE ? "plain_light"
++            : background == Color.parseColor("#1B1C17") ? "dark" : "light";
++        view.setInt(id(c, "surface"), "setBackgroundResource", resource(c, "drawable", "ress_native_" + surface));
 +        ReadableMap header = child(tree, 0);
 +        ReadableMap brand = child(child(header, 0), 0);
 +        ReadableMap status = child(header, 1);
-+        view.setTextViewText(id(c, "brand"), text(brand));
-+        view.setTextColor(id(c, "brand"), color(brand));
++        view.setImageViewBitmap(id(c, "brand"), brandBitmap(c, text(brand), color(brand)));
 +        view.setTextViewText(id(c, "status"), text(status));
 +        view.setTextColor(id(c, "status"), color(status));
 +        ReadableMap icon = child(child(header, 2), 0);
@@ -165,10 +176,12 @@ index 0000000000000000000000000000000000000000..ac391b8e66920afcd352321a975bea21
 +        RNWidgetImageProvider.deleteCollectionImages(c, widgetId, 0, mode);
 +        for (int i = 0; i < Math.min(10, articles.size()); i++) {
 +            ReadableMap article = articles.getMap(i);
-+            ReadableMap sourceRow = child(article, 0);
-+            ReadableMap headlineRow = child(article, 1);
-+            ReadableMap title = child(child(headlineRow, 0), 0);
-+            ReadableMap date = child(child(headlineRow, 0), 1);
++            ReadableArray articleChildren = article.getArray("children");
++            boolean imageFirst = "ImageWidget".equals(child(article, 0).getString("type"));
++            ReadableMap details = child(article, imageFirst ? 1 : 0);
++            ReadableMap sourceRow = child(details, 0);
++            ReadableMap title = child(details, 1);
++            ReadableMap date = child(details, 2);
 +            ReadableArray sourceChildren = sourceRow.getArray("children");
 +            ReadableMap source = sourceChildren.getMap(sourceChildren.size() - 1);
 +            Bundle row = new Bundle();
@@ -183,8 +196,8 @@ index 0000000000000000000000000000000000000000..ac391b8e66920afcd352321a975bea21
 +            row.putString("uri", props(article).getMap("clickActionData").getString("uri"));
 +            String prefix = "widget_" + widgetId + "_mode_" + mode + "_collection_0_" + i;
 +            if (sourceChildren.size() > 1) row.putString("favicon", save(c, prefix, child(sourceRow, 0), 16, 16));
-+            if (headlineRow.getArray("children").size() > 1) {
-+                ReadableMap image = child(headlineRow, 1);
++            if (articleChildren.size() > 1) {
++                ReadableMap image = child(article, imageFirst ? 0 : 1);
 +                int width = props(image).getInt("imageWidth");
 +                int height = props(image).getInt("imageHeight");
 +                row.putInt("width", width);
@@ -210,6 +223,21 @@ index 0000000000000000000000000000000000000000..ac391b8e66920afcd352321a975bea21
 +        if (!mutable) intent.putExtra("clickActionData", new Bundle());
 +        return PendingIntent.getBroadcast(c, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT |
 +            (mutable ? PendingIntent.FLAG_MUTABLE : PendingIntent.FLAG_IMMUTABLE));
++    }
++
++    // RemoteViews are inflated by the launcher, which may ignore bundled font
++    // families. Draw only the wordmark with our actual font; article text stays native.
++    private static Bitmap brandBitmap(Context c, String text, int color) {
++        android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
++        paint.setTypeface(c.getResources().getFont(resource(c, "font", "ress_vollkorn")));
++        paint.setTextSize(RNWidgetUtil.dpToPx(c, 30));
++        paint.setColor(color);
++        android.graphics.Rect bounds = new android.graphics.Rect();
++        paint.getTextBounds(text, 0, text.length(), bounds);
++        int height = RNWidgetUtil.dpToPx(c, 40);
++        Bitmap bitmap = Bitmap.createBitmap(Math.max(1, bounds.width() + 2), height, Bitmap.Config.ARGB_8888);
++        new Canvas(bitmap).drawText(text, 1 - bounds.left, (height - bounds.height()) / 2f - bounds.top, paint);
++        return bitmap;
 +    }
 +
 +    private static Bitmap bitmap(ReactApplicationContext c, ReadableMap node, int width, int height) {

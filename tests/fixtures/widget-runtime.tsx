@@ -36,7 +36,10 @@ mock.module("react-native", () => ({
       task = provider();
     },
   },
-  Image: { resolveAssetSource: (image: unknown) => image },
+  Image: {
+    resolveAssetSource: (image: unknown) => image,
+    getSize: (uri: string, done: (width: number, height: number) => void) => done(320, uri.includes("wide") ? 180 : 320),
+  },
 }));
 mock.module("@react-native-async-storage/async-storage", () => ({
   default: {
@@ -94,10 +97,12 @@ assert.equal(drawings[0].dark.props.backgroundColor, "#1B1C17");
 assert.match(JSON.stringify(drawings[1]), /ImageWidget/);
 assert.match(JSON.stringify(drawings[1]), /data:image\/png;base64,AQID/);
 // Check the actual native tree: weighted columns reserve space for fixed controls
-// and the normal article thumbnail belongs beside the title, never above it.
+// and square thumbnails share the top edge with the entire details column.
 const root = drawings[1].light;
 const header = root.children[0];
-assert.deepEqual(root.props.padding, { top: 16, right: 16, bottom: 16, left: 16 });
+assert.equal(root.props.padding?.bottom ?? 0, 0);
+assert.deepEqual(header.props.padding, { top: 4, right: 4, bottom: 4, left: 16 });
+assert.equal(header.props.height, 48);
 assert.equal(header.children[0].props.width, 0);
 assert.equal(header.props.gravity & 112, 16, "header contents share a vertical center");
 const refresh = header.children.find((child: any) => child.props.clickAction === "REFRESH");
@@ -107,22 +112,22 @@ assert.equal(refresh.props.borderRadius.topLeft, 20);
 assert.equal(root.children[1].props.height, 0);
 assert.equal(root.children[1].props.weight, 1);
 const row = root.children[1].children[0].children[0];
-assert.equal(row.children.length, 2, "source plus horizontal headline/thumbnail row");
+assert.equal(row.children.length, 2, "details plus square thumbnail");
 // Contract consumed by RessNativeWidget.java after library serialization.
 assert.equal(row.props.borderColor.bottom, "#DDD39B");
 assert.equal(drawings[1].dark.children[1].children[0].children[0].props.borderColor.bottom, "#3A3D31");
 assert.equal(row.props.clickActionData.uri, "ress://article?id=story");
-assert.equal(row.children[0].children.at(-1).props.text, "My source");
+assert.equal(row.children[0].children[0].children.at(-1).props.text, "My source");
 assert.equal(header.children[2].children[0].type, "SvgWidget");
 assert.ok(header.children[2].children[0].props.svgString.includes("<svg"));
-const headlineRow = row.children[1];
-assert.equal(headlineRow.props.orientation, "HORIZONTAL");
-assert.equal(headlineRow.children[0].props.width, 0);
-assert.equal(headlineRow.children[0].children[0].props.fontFamily, "HankenGrotesk_700Bold");
+assert.equal(row.props.orientation, "HORIZONTAL");
+assert.equal(row.children[0].props.width, 0);
+assert.equal(row.children[0].children[1].props.fontFamily, "HankenGrotesk_700Bold");
+assert.equal(row.children[0].children[1].props.maxLines, 3);
 assert.equal(row.props.borderWidth?.bottom ?? 0, 0, "a single row has no trailing separator");
-const thumbnail = headlineRow.children[1];
-assert.equal(thumbnail.props.imageWidth, 96);
-assert.equal(thumbnail.props.imageHeight, 54);
+const thumbnail = row.children[1];
+assert.equal(thumbnail.props.imageWidth, 72);
+assert.equal(thumbnail.props.imageHeight, 72);
 assert.equal(thumbnail.props.resizeMode, "cover");
 
 // Resize through the real bridge at the configured minimum and larger sizes.
@@ -137,9 +142,29 @@ for (const width of [250, 300, 420]) {
     const list = resized.children[1];
     assert.equal(list.props.height, 0);
     assert.equal(list.props.weight, 1);
-    const image = list.children[0].children[0].children[1].children[1].props;
-    assert.ok(image.imageWidth + 12 < (width - 32) / 2);
-    assert.ok(Math.abs(image.imageHeight - image.imageWidth * 9 / 16) <= 0.5);
+    const image = list.children[0].children[0].children[1].props;
+    assert.equal(image.imageWidth, 72);
+    assert.equal(image.imageHeight, 72);
+  }
+}
+// A non-square image uses the full row above its details, independent of domain.
+await put(keys.articles, [{ ...article, image: "https://source.test/wide.png" }]);
+drawings.length = 0;
+await task({ ...info, widgetAction: "WIDGET_RESIZED" });
+const wideRow = drawings.at(-1).light.children[1].children[0].children[0];
+assert.equal(wideRow.props.orientation, "VERTICAL");
+assert.equal(wideRow.children[0].type, "ImageWidget");
+assert.equal(wideRow.children[0].props.imageWidth, 268);
+assert.equal(wideRow.children[0].props.imageHeight, 151);
+assert.equal(wideRow.children[1].children[1].props.maxLines, 3);
+for (const [scheme, paper, rule] of [["light", "#FFFFFF", "#D6D6D6"], ["dark", "#000000", "#333333"]]) {
+  await put(keys.settings, { ...defaults, theme: scheme, background: "plain" });
+  drawings.length = 0;
+  await bridge.updateWidgets();
+  for (const mode of ["light", "dark"]) {
+    const tree = drawings[0][mode] ?? drawings[0].light;
+    assert.equal(tree.props.backgroundColor, paper);
+    assert.equal(tree.children[1].children[0].children[0].props.borderColor.bottom, rule);
   }
 }
 await put(keys.settings, { ...defaults, theme: "dark" });

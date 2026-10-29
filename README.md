@@ -17,11 +17,13 @@ No account, backend, or API key required. Built with Expo, React Native, and Typ
 ## Reading
 
 - Follow RSS and Atom feeds in a newest-first timeline.
-- Read cached articles offline and keep bookmarks in a searchable saved list.
+- Open the original web page inside Ress, or toggle reading mode from the header.
+- Keep bookmarks in a searchable saved list and read cached feed text offline.
+- Choose Web page or Reading mode as the default in **Settings → Reading**.
 - Pick a reading text size and use a light, dark, or device theme.
-- Share an article or open it on the original website.
+- Share an article or open it in your device's browser.
 
-The reader uses the text included in each feed. If a publisher only sends an excerpt, you'll need to open the original page for the rest. Feed images appear in article cards and the reader; full HTML formatting stays on the publisher's site.
+Reading mode extracts text from the loaded web page using Mozilla Readability and displays it with Ress's theme and text size. Switching back keeps the web page open in place. Some pages, including player pages and sites that restrict access, may not provide readable article text. If extraction fails, Ress labels and shows the cached RSS text as a fallback. Recently extracted pages are also cached locally; this cache is limited and older reading copies may be removed.
 
 ## Your sources
 
@@ -37,7 +39,7 @@ Add it through **Settings → Widget → Add widget to home screen**, or your la
 
 ## Storage and privacy
 
-Subscriptions, bookmarks, reading history, and cached articles stay on your device. Feed requests go directly to publishers. Ress has no tracking or sync service.
+Subscriptions, bookmarks, reading history, and cached articles stay on your device. Feed requests and article page loads go directly to publishers. Embedded websites can load their own cookies, scripts, and third-party resources, just as they do in a browser. Ress has no tracking or sync service.
 
 Website icon previews use Google's favicon service. Icons you upload stay on your device.
 
@@ -52,7 +54,9 @@ bun install
 bun start
 ```
 
-Expo Go can run the reader. The Android widget and saving OPML exports to Download require a native build with the project's native modules included.
+Expo Go can run the reader. The Android widget, saving OPML exports to Download, and explicitly targeting the device's browser require a native build with the project's native modules included. Expo Go falls back to the system URL handler for external links.
+
+After changing the page extraction script or updating Mozilla Readability, regenerate its bundled script with `bun scripts/build-reader.ts`.
 
 Ress is a mobile app for Android.
 

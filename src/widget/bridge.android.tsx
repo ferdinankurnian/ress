@@ -9,6 +9,7 @@ import {
   removeWidgetSettings,
 } from "../data/store";
 import { resolveTheme } from "../ui/theme";
+import { prepareArticleImages } from "../ui/prepareArticleImages";
 import { widgetImage } from "./images";
 
 export const widgetAvailable = Boolean(
@@ -42,7 +43,8 @@ export async function renderWidgetSnapshot(
       (widgetSource === "all" || a.sourceId === widgetSource) &&
       (!preferences.unreadOnly || !state.read.includes(a.id)),
   ).sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0)).slice(0, 10);
-  const articles = filtered.map((article) => ({
+  const prepared = images ? await prepareArticleImages(filtered) : filtered;
+  const articles = prepared.map((article) => ({
     ...article,
     favicon:
       state.sources.find((source) => source.id === article.sourceId)
@@ -56,7 +58,7 @@ export async function renderWidgetSnapshot(
       Array.from({ length: 6 }, async () => {
         while (next < filtered.length && Date.now() < deadline) {
           const index = next++;
-          const article = filtered[index];
+          const article = prepared[index];
           const [favicon, image] = await Promise.all([
             widgetImage(articles[index].favicon || article.favicon),
             widgetImage(article.image),
@@ -75,6 +77,7 @@ export async function renderWidgetSnapshot(
       failed={failed}
       refreshing={refreshing}
       scheme={scheme}
+      background={state.settings.background}
     />
   );
   return state.settings.theme === "device"

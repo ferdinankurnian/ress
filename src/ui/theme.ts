@@ -23,6 +23,7 @@ export const theme = {
   },
 } as const;
 
+export type BackgroundPreference = "warm" | "plain";
 export type ThemePreference = "device" | "light" | "dark";
 export type Palette = {
   [Key in keyof typeof theme.color]: Key extends "transparent"
@@ -52,6 +53,20 @@ export function resolveTheme(
       ? "dark"
       : "light";
 }
-export function colorsFor(scheme: "light" | "dark"): Palette {
+const plainLight: Palette = {
+  ...theme.color,
+  paper: "#FFFFFF", surface: "#F2F2F2", ink: "#242424",
+  muted: "#636363", rule: "#D6D6D6",
+};
+const plainDark: Palette = {
+  ...darkColors,
+  paper: "#000000", surface: "#1C1C1C", ink: "#F2F2F2",
+  muted: "#AAAAAA", rule: "#333333",
+};
+export function colorsFor(
+  scheme: "light" | "dark",
+  background: BackgroundPreference = "warm",
+): Palette {
+  if (background === "plain") return scheme === "dark" ? plainDark : plainLight;
   return scheme === "dark" ? darkColors : theme.color;
 }

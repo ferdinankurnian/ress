@@ -8,8 +8,9 @@ import {
   TextWidget,
   type ImageWidgetSource,
 } from "react-native-android-widget";
-import { Article, relativeTime, isGitHubRelease } from "../data/feeds";
-import { theme, colorsFor } from "../ui/theme";
+import { Article, relativeTime } from "../data/feeds";
+import type { ThumbnailLayout } from "../ui/articleImages";
+import { theme, colorsFor, type BackgroundPreference } from "../ui/theme";
 export function RessWidget({
   articles,
   width = 300,
@@ -17,39 +18,43 @@ export function RessWidget({
   failed = false,
   refreshing = false,
   scheme = "light",
+  background = "warm",
 }: {
-  articles: Article[];
+  articles: (Article & { thumbnailLayout?: ThumbnailLayout })[];
   width?: number;
   height?: number;
   synced: string;
   failed?: boolean;
   refreshing?: boolean;
   scheme?: "light" | "dark";
+  background?: BackgroundPreference;
 }) {
   "use no memo";
-  const c = colorsFor(scheme);
+  const c = colorsFor(scheme, background);
   const contentWidth = Math.max(0, width - 32);
   // Keep the title legible and reserve the full refresh hit area at every width.
   const statusWidth = Math.max(0, Math.min(96, contentWidth - 120));
-  const thumbnailWidth = Math.max(48, Math.min(96, Math.floor(contentWidth * 0.36)));
+  const thumbnailWidth = contentWidth;
   const visibleArticles = articles.slice(0, 10);
   return (
     <FlexWidget
       style={{
         width: "match_parent",
         height: "match_parent",
-        backgroundColor: scheme === "dark" ? c.paper : c.yellowSoft,
+        backgroundColor: background === "plain" || scheme === "dark" ? c.paper : c.yellowSoft,
         borderRadius: 24,
-        padding: 16,
       }}
     >
       <FlexWidget
         style={{
           width: "match_parent",
-          height: 40,
+          height: 48,
+          paddingLeft: 16,
+          paddingTop: 4,
+          paddingRight: 4,
+          paddingBottom: 4,
           flexDirection: "row",
           alignItems: "center",
-          marginBottom: 8,
         }}
       >
         <FlexWidget style={{ width: 0, flex: 1 }}>
@@ -100,21 +105,34 @@ export function RessWidget({
         <FlexWidget style={{ width: "match_parent", height: 0, flex: 1 }}>
           <ListWidget style={{ width: "match_parent", height: "match_parent" }}>
             {visibleArticles.map((a, index) => {
-              const release = isGitHubRelease(a.url);
+              const square = a.thumbnailLayout === "square";
+              const image = a.image && a.thumbnailLayout !== "hidden" ? (
+                <ImageWidget image={a.image as ImageWidgetSource}
+                  imageWidth={square ? 72 : thumbnailWidth}
+                  imageHeight={square ? 72 : Math.round(thumbnailWidth * 9 / 16)}
+                  radius={8} resizeMode="cover"
+                  style={square ? { marginLeft: 12 } : { marginBottom: 10 }} />
+              ) : null;
               return (
                 <FlexWidget
                   key={a.id}
                   style={{
                     width: "match_parent",
-                    paddingVertical: 12,
+                    flexDirection: square ? "row" : "column",
+                    alignItems: "flex-start",
+                    // Insets belong to scrollable rows, not the viewport.
+                    marginHorizontal: 16,
+                    paddingVertical: 16,
                     borderBottomWidth: index === visibleArticles.length - 1 ? 0 : 1,
-                    borderBottomColor: scheme === "dark" ? "#3A3D31" : "#DDD39B",
+                    borderBottomColor: background === "plain" ? c.rule : scheme === "dark" ? "#3A3D31" : "#DDD39B",
                   }}
                   clickAction="OPEN_URI"
                   clickActionData={{
                     uri: `ress://article?id=${encodeURIComponent(a.id)}`,
                   }}
                 >
+                  {!square && image}
+                  <FlexWidget style={square ? { width: 0, flex: 1 } : { width: "match_parent" }}>
                   <FlexWidget
                     style={{
                       flexDirection: "row",
@@ -142,14 +160,6 @@ export function RessWidget({
                       }}
                     />
                   </FlexWidget>
-                  <FlexWidget
-                    style={{
-                      width: "match_parent",
-                      flexDirection: "row",
-                      alignItems: "flex-start",
-                    }}
-                  >
-                    <FlexWidget style={{ width: 0, flex: 1 }}>
                       <TextWidget
                         text={a.title}
                         maxLines={3}
@@ -164,18 +174,8 @@ export function RessWidget({
                         text={relativeTime(a.date)}
                         style={{ color: c.muted, fontFamily: theme.font.body, fontSize: 10, marginTop: 7 }}
                       />
-                    </FlexWidget>
-                    {a.image ? (
-                      <ImageWidget
-                        image={a.image as ImageWidgetSource}
-                        imageWidth={release ? 56 : thumbnailWidth}
-                        imageHeight={release ? 56 : Math.round(thumbnailWidth * 9 / 16)}
-                        radius={8}
-                        resizeMode="cover"
-                        style={{ marginLeft: 12 }}
-                      />
-                    ) : null}
                   </FlexWidget>
+                  {square && image}
                 </FlexWidget>
               );
             })}
@@ -184,7 +184,7 @@ export function RessWidget({
       ) : (
         <TextWidget
           text="No articles here yet. Open Ress to add or refresh your sources."
-          style={{ color: c.ink, fontSize: 16 }}
+          style={{ color: c.ink, fontSize: 16, padding: 16 }}
           clickAction="OPEN_APP"
         />
       )}

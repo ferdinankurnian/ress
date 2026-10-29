@@ -58,8 +58,10 @@ import X from "lucide-react-native/icons/x";
 import Trash2 from "lucide-react-native/icons/trash";
 import Smartphone from "lucide-react-native/icons/smartphone";
 import Sun from "lucide-react-native/icons/sun";
+import PaletteIcon from "lucide-react-native/icons/palette";
 import Moon from "lucide-react-native/icons/moon";
 import Type from "lucide-react-native/icons/type";
+import BookOpen from "lucide-react-native/icons/book-open";
 import { ConfirmDialog } from "./src/ui/ConfirmDialog";
 import Info from "lucide-react-native/icons/info";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
@@ -74,7 +76,9 @@ import Upload from "lucide-react-native/icons/upload";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
-import * as Browser from "expo-web-browser";
+import { openExternalBrowser } from "./src/reader/browser";
+import { ArticleContent, type ArticleContentHandle } from "./src/reader/ArticleContent";
+import type { ReadingMode } from "./src/reader/page";
 import * as Clipboard from "expo-clipboard";
 import {
   Article,
@@ -99,6 +103,8 @@ import {
 } from "./src/data/store";
 import { pinWidget, updateWidgets, widgetAvailable } from "./src/widget/bridge";
 import { theme, colorsFor, resolveTheme, type Palette } from "./src/ui/theme";
+import type { PreparedArticle, ThumbnailLayout } from "./src/ui/articleImages";
+import { prepareArticleImages } from "./src/ui/prepareArticleImages";
 const f = theme.font;
 const ThemeContext = createContext<{
   c: Palette;
@@ -110,7 +116,7 @@ function useTheme() {
   if (!value) throw new Error("Theme provider is missing.");
   return value;
 }
-type SettingsPage = "main" | "Import & Export" | "Text size" | "Widget" | "About" | "License";
+type SettingsPage = "main" | "Appearance" | "Import & Export" | "Reading" | "Text size" | "Widget" | "About" | "License";
 type Tab = "Feed" | "Saved" | "Sources" | "Settings";
 const tabs = [
   { name: "Feed", icon: Rss },
@@ -152,24 +158,47 @@ function Favicon({
 function Thumbnail({
   uri,
   compact = false,
+  preserveSpace = false,
 }: {
   uri?: string;
   compact?: boolean;
+  preserveSpace?: boolean;
 }) {
   const { s } = useTheme();
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [uri]);
-  if (!uri || failed) return null;
+  const [failedUri, setFailedUri] = useState<string>();
+  const failed = failedUri === uri;
+  if (!uri || (failed && !preserveSpace)) return null;
   return (
-    <View style={[s.thumbnail, compact && s.releaseAvatar, compact && { alignSelf: "flex-start" }]}>
-      <Image
+    <View style={[s.thumbnail, compact && s.squareThumbnail, compact && { alignSelf: "flex-start" }]}>
+      {!failed && <Image
         source={{ uri }}
-        accessibilityLabel={compact ? "Release author avatar" : "Article image"}
-        onError={() => setFailed(true)}
+        accessibilityLabel="Article image"
+        onError={() => setFailedUri(uri)}
         resizeMode="cover"
         style={{ width: "100%", height: "100%", borderRadius: 10 }}
-      />
+      />}
     </View>
+  );
+}
+function ArticleBody({ uri, layout, metadata, children }: {
+  uri?: string;
+  layout: ThumbnailLayout;
+  metadata: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const { s } = useTheme();
+  const square = layout === "square";
+  return (
+    <>
+      {!square && metadata}
+      <View style={square && s.squareBody}>
+        {layout !== "hidden" && <Thumbnail uri={uri} compact={square} preserveSpace />}
+        <View style={square && s.squareText}>
+          {square && metadata}
+          {children}
+        </View>
+      </View>
+    </>
   );
 }
 const REORDER_HEIGHT = 72;
@@ -528,7 +557,7 @@ function Action({
       onPress={(event) => { event.stopPropagation(); onPress(); }}
       style={({ pressed }) => [
         s.iconButton,
-        active && Icon !== Bookmark && s.selected,
+        active && Icon !== Bookmark && Icon !== BookOpen && s.selected,
         pressed && s.pressed,
         disabled && s.disabled,
       ]}
@@ -540,12 +569,12 @@ function Action({
             ? Icon === Bookmark
               ? c.yellow
               : c.accentInk
-            : Icon === Bookmark
+            : (Icon === Bookmark || Icon === BookOpen)
               ? c.muted
               : c.ink
         }
         strokeWidth={1.7}
-        fill={active && Icon === Bookmark ? c.yellow : c.transparent}
+        fill={active && (Icon === Bookmark || Icon === BookOpen) ? c.yellow : c.transparent}
       />
     </Pressable>
   );
@@ -618,7 +647,7 @@ function RessApp() {
   }, [tab, settingsPage]);
 
   const [sources, setSources] = useState<Source[]>([]);
-  const feedListRef = useRef<FlatList<Article>>(null);
+  const feedListRef = useRef<FlatList<PreparedArticle>>(null);
   const sourcesScrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const [sourceOrder, setSourceOrder] = useState<Source[] | null>(null);
   const [savingOrder, setSavingOrder] = useState(false);
@@ -641,7 +670,7 @@ function RessApp() {
       }
     } finally { setSavingOrder(false); }
   }
-  const [articles, setArticles] = useState<Article[]>([]);
+  const [articles, setArticles] = useState<PreparedArticle[]>([]);
   const [saved, setSaved] = useState<string[]>([]);
   const [read, setRead] = useState<string[]>([]);
   const [settings, setSettings] = useState<Settings>(defaults);
@@ -656,7 +685,7 @@ function RessApp() {
   const deviceScheme = useColorScheme();
   const scheme = resolveTheme(settings.theme, deviceScheme);
   const dark = scheme === "dark";
-  const c = colorsFor(scheme);
+  const c = colorsFor(scheme, settings.background);
   const s = useMemo(() => createStyles(c, dark), [c, dark]);
   const themeValue = useMemo(() => ({ c, s, dark }), [c, s, dark]);
   useEffect(() => {
@@ -685,11 +714,15 @@ function RessApp() {
   const [selected, setSelected] = useState<Article | null>(null);
   const [readerMenu, setReaderMenu] = useState(false);
   const [readerBarHeight, setReaderBarHeight] = useState(60);
+  const [readingMode, setReadingMode] = useState<ReadingMode>("web");
+  const [pageUrl, setPageUrl] = useState("");
+  const [pageCanGoBack, setPageCanGoBack] = useState(false);
+  const articleContent = useRef<ArticleContentHandle>(null);
   useEffect(() => {
     if (!selected) return;
     const back = BackHandler.addEventListener("hardwareBackPress", () => {
       if (readerMenu) setReaderMenu(false);
-      else setSelected(null);
+      else if (!articleContent.current?.goBack()) setSelected(null);
       return true;
     });
     return () => back.remove();
@@ -777,7 +810,7 @@ function RessApp() {
     setBusy(true);
     try {
       const result = await refreshFeeds();
-      setArticles(result.articles);
+      setArticles(await prepareArticleImages(result.articles));
       const library = await loadLibrary();
       const nextSources = library.sources.map((source) => ({
         ...source,
@@ -809,10 +842,11 @@ function RessApp() {
   useEffect(() => {
     let mounted = true;
     loadLibrary()
-      .then((state) => {
+      .then(async (state) => {
+        const prepared = await prepareArticleImages(state.articles);
         if (!mounted) return;
         setSources(state.sources);
-        setArticles(state.articles);
+        setArticles(prepared);
         setSaved(state.saved);
         savedRef.current = state.saved;
         setRead(state.read);
@@ -848,7 +882,7 @@ function RessApp() {
           );
           if (article) {
             pendingLink.current = null;
-            openArticle(article);
+            openArticle(article, state.settings.readingMode);
           }
         });
       }
@@ -883,8 +917,11 @@ function RessApp() {
       return false;
     }
   }
-  function openArticle(article: Article) {
+  function openArticle(article: Article, mode = settingsRef.current.readingMode) {
     setReaderMenu(false);
+    setReadingMode(mode);
+    setPageUrl(article.url);
+    setPageCanGoBack(false);
     setSelected(article);
     if (!readRef.current.includes(article.id)) {
       const next = [...readRef.current, article.id];
@@ -915,7 +952,7 @@ function RessApp() {
       if (settingsRef.current !== next) return;
       await persist(keys.settings, next);
     });
-    if (patch.theme !== undefined) {
+    if (patch.theme !== undefined || patch.background !== undefined) {
       if (widgetThemeTimer.current !== null) clearTimeout(widgetThemeTimer.current);
       widgetThemeTimer.current = setTimeout(() => {
         widgetThemeTimer.current = null;
@@ -1338,6 +1375,7 @@ function RessApp() {
                       label={`Read ${item.title}`}
                       onPress={() => openArticle(item)}
                     >
+                      <ArticleBody uri={item.image} layout={item.thumbnailLayout} metadata={
                       <View style={s.articleMeta}>
                         <View style={s.sourceIdentity}>
                           <Favicon
@@ -1356,14 +1394,10 @@ function RessApp() {
                           </Text>
                         </View>
                       </View>
-                      <View style={isGitHubRelease(item.url) && s.releaseBody}>
-                        {!isGitHubRelease(item.url) && (
-                          <Thumbnail uri={item.image} />
-                        )}
-                        <View
-                          style={isGitHubRelease(item.url) && s.releaseText}
-                        >
+                      }>
                           <Text
+                            numberOfLines={3}
+                            ellipsizeMode="tail"
                             style={[
                               s.articleTitle,
                               read.includes(item.id) && s.readTitle,
@@ -1379,15 +1413,7 @@ function RessApp() {
                               {item.summary}
                             </Text>
                           ) : null}
-                        </View>
-                        {isGitHubRelease(item.url) && (
-                          <Thumbnail
-                            uri={item.image}
-                            compact
-
-                          />
-                        )}
-                      </View>
+                      </ArticleBody>
                     <View style={s.articleBottom}>
                       <Text style={s.small}>{dateLabel(item.date)}</Text>
                       <Action
@@ -1465,7 +1491,7 @@ function RessApp() {
                 contentContainerStyle={
                   tab === "Sources"
                     ? [s.sourcesContent, !sources.length && s.emptyContent]
-                    : s.listContent
+                    : [s.listContent, settingsPage === "main" && { paddingTop: 8 }]
                 }
               >
                 {tab === "Sources" ? (
@@ -1492,7 +1518,36 @@ function RessApp() {
                   <>
                     {settingsPage === "main" ? (
                       <>
-                        <Text style={s.settingsSection}>Appearance</Text>
+                        <View style={s.aboutLinks}>
+                          {(
+                            [
+                              { title: "Appearance", icon: PaletteIcon },
+                              { title: "Import & Export", icon: FileText },
+                              { title: "Reading", icon: BookOpen },
+                              { title: "Text size", icon: Type },
+                              { title: "Widget", icon: LayoutGrid },
+                              { title: "About", icon: Info },
+                            ] as const
+                          ).map(({ title, icon: Icon }) => (
+                            <SettingsRow
+                              key={title}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Open ${title}`}
+                              style={title === "About" ? { borderBottomWidth: 0 } : undefined}
+                              onPress={() => setSettingsPage(title)}
+                            >
+                              <Icon size={21} color={c.ink} />
+                              <Text style={[s.settingTitle, { flex: 1 }]}>
+                                {title}
+                              </Text>
+                              <ChevronRight size={18} color={c.muted} />
+                            </SettingsRow>
+                          ))}
+                        </View>
+                      </>
+                    ) : settingsPage === "Appearance" ? (
+                      <>
+                        <Text style={s.settingsSection}>Theme</Text>
                         <View
                           accessibilityRole="radiogroup"
                           accessibilityLabel="Theme"
@@ -1548,30 +1603,25 @@ function RessApp() {
                             </Pressable>
                           ))}
                         </View>
-                        <View style={[s.aboutLinks, { marginTop: 12 }]}>
-                          {(
-                            [
-                              { title: "Import & Export", icon: FileText },
-                              { title: "Text size", icon: Type },
-                              { title: "Widget", icon: LayoutGrid },
-                              { title: "About", icon: Info },
-                            ] as const
-                          ).map(({ title, icon: Icon }) => (
-                            <SettingsRow
-                              key={title}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Open ${title}`}
-                              style={title === "About" ? { borderBottomWidth: 0 } : undefined}
-                              onPress={() => setSettingsPage(title)}
+                        <Text style={s.settingsSection}>Background</Text>
+                        <View accessibilityRole="radiogroup" accessibilityLabel="Background" style={s.themeChoices}>
+                          {(["warm", "plain"] as const).map((value) => (
+                            <Pressable
+                              key={value}
+                              accessibilityRole="radio"
+                              accessibilityLabel={`${value === "warm" ? "Warm" : "Plain"} background`}
+                              accessibilityState={{ checked: settings.background === value }}
+                              onPress={() => void changeSettings({ background: value })}
+                              style={({ pressed }) => [s.themeChoice, settings.background === value && s.selected, pressed && s.pressed]}
                             >
-                              <Icon size={21} color={c.ink} />
-                              <Text style={[s.settingTitle, { flex: 1 }]}>
-                                {title}
+                              <Text style={[s.themeChoiceText, settings.background === value && { color: c.accentInk, fontFamily: f.bold }]}>
+                                {value === "warm" ? "Warm" : "Plain"}
                               </Text>
-                              <ChevronRight size={18} color={c.muted} />
-                            </SettingsRow>
+                            </Pressable>
                           ))}
                         </View>
+                        <Text style={s.helper}>Applies to the app and widgets.</Text>
+
                       </>
                     ) : settingsPage === "Import & Export" ? (
                       <>
@@ -1592,6 +1642,32 @@ function RessApp() {
                           </SettingsRow>
                         </View>
                         {sourceBusy && <ActivityIndicator color={c.ink} />}
+                      </>
+                    ) : settingsPage === "Reading" ? (
+                      <>
+                        <Text style={s.readingSettingsLabel}>Open articles in</Text>
+                        <View accessibilityRole="radiogroup" accessibilityLabel="Default article mode" style={s.aboutLinks}>
+                          {([
+                            { value: "web", title: "Web page", icon: Globe },
+                            { value: "reading", title: "Reading mode", icon: BookOpen },
+                          ] as const).map(({ value, title, icon: Icon }, index) => (
+                            <SettingsRow
+                              key={value}
+                              accessibilityRole="radio"
+                              accessibilityLabel={`${title} by default`}
+                              accessibilityState={{ checked: settings.readingMode === value }}
+                              aria-checked={settings.readingMode === value}
+                              style={index === 1 ? { borderBottomWidth: 0 } : undefined}
+                              onPress={() => void changeSettings({ readingMode: value })}
+                            >
+                              <Icon size={21} color={c.ink} />
+                              <Text style={s.readingSettingsOption}>{title}</Text>
+                              <View style={[s.modeRadio, { borderColor: settings.readingMode === value ? c.ink : c.muted, backgroundColor: settings.readingMode === value ? c.yellow : c.transparent }]}>
+                                {settings.readingMode === value && <View style={[s.modeRadioDot, { backgroundColor: c.accentInk }]} />}
+                              </View>
+                            </SettingsRow>
+                          ))}
+                        </View>
                       </>
                     ) : settingsPage === "Text size" ? (
                       <>
@@ -1717,7 +1793,7 @@ function RessApp() {
                             accessibilityLabel="Ress on GitHub"
 
                             onPress={() =>
-                              void Browser.openBrowserAsync(
+                              void openExternalBrowser(
                                 "https://github.com/ferdinankurnian/ress",
                               )
                             }
@@ -1733,7 +1809,7 @@ function RessApp() {
                             accessibilityLabel="iydheko.dev website"
 
                             onPress={() =>
-                              void Browser.openBrowserAsync(
+                              void openExternalBrowser(
                                 "https://iydheko.dev",
                               )
                             }
@@ -1828,10 +1904,19 @@ function RessApp() {
                 >
                   <Action
                     icon={ChevronLeft}
-                    label="Back to stories"
-                    onPress={() => setSelected(null)}
+                    label={readingMode === "web" && pageCanGoBack ? "Back to previous page" : "Back to stories"}
+                    onPress={() => { if (!articleContent.current?.goBack()) setSelected(null); }}
                   />
+                  <Text numberOfLines={1} ellipsizeMode="tail" style={[s.small, { flex: 1, minWidth: 0, fontSize: 15, marginHorizontal: 8 }]}>
+                    {readingMode === "reading" ? "Reading mode" : (() => { try { return new URL(pageUrl).hostname; } catch { return selected.source; } })()}
+                  </Text>
                   <View style={s.actionRow}>
+                    <Action
+                      icon={BookOpen}
+                      label={readingMode === "reading" ? "Show web page" : "Show reading mode"}
+                      active={readingMode === "reading"}
+                      onPress={() => { setReaderMenu(false); setReadingMode((mode) => mode === "web" ? "reading" : "web"); }}
+                    />
                     <Action
                       icon={Bookmark}
                       label={
@@ -1850,8 +1935,30 @@ function RessApp() {
                   </View>
                 </View>
                 <View style={{ flex: 1, overflow: "hidden" }}>
-                  <Scene key={selected.id} scene={selected.id} animateOnMount>
+                  <ArticleContent
+                    key={selected.id}
+                    ref={articleContent}
+                    url={selected.url}
+                    mode={readingMode}
+                    colors={c}
+                    onNavigation={(url, canGoBack) => { setPageUrl(url); setPageCanGoBack(canGoBack); }}
+                    onOpenBrowser={(url) => { void openExternalBrowser(url).catch(() => setConfirmation({ title: "Could not open browser", message: "Please try again." })); }}
+                    renderReading={({ page, loading, unavailable, retry }) => loading && !page ? (
+                      <View style={s.readingStatus}>
+                        <ActivityIndicator color={c.ink} />
+                        <Text style={s.body}>Preparing reading mode…</Text>
+                        <Text style={s.small}>Getting the article from the web page.</Text>
+                      </View>
+                    ) : (
                     <ScrollView contentContainerStyle={s.readerContent}>
+                      {!page && <View style={s.readingFallback}>
+                        <Text style={[s.settingTitle, { marginBottom: 6 }]}>Cached feed text</Text>
+                        <Text style={s.small}>Reading mode couldn't extract this page. This is the text included in the RSS feed.</Text>
+                        <Pressable accessibilityRole="button" onPress={retry} style={{ minHeight: 44, justifyContent: "center" }}>
+                          <Text style={s.settingTitle}>Retry web page</Text>
+                        </Pressable>
+                      </View>}
+                      {page && unavailable && <Text style={[s.small, { marginBottom: 16 }]}>Showing the saved reading copy. The web page couldn't be read again.</Text>}
                       <View style={s.sourceIdentity}>
                         <Favicon
                           uri={
@@ -1867,11 +1974,11 @@ function RessApp() {
                         <Text style={s.sourceName}>{selected.source}</Text>
                       </View>
                       <Text selectable style={s.readerTitle}>
-                        {selected.title}
+                        {page?.title || selected.title}
                       </Text>
-                      <Text style={s.small}>{dateLabel(selected.date)}</Text>
-                      {!isGitHubRelease(selected.url) && (
-                        <Thumbnail uri={selected.image} />
+                      <Text style={s.small}>{page?.byline || dateLabel(selected.date)}</Text>
+                      {!isGitHubRelease(page?.url || selected.url) && (
+                        <Thumbnail uri={page ? page.image : selected.image} />
                       )}
                       <View style={s.readerRule} />
                       <Text
@@ -1882,12 +1989,13 @@ function RessApp() {
                           settings.readingSize === "small" && s.readingSmall,
                         ]}
                       >
-                        {selected.content ||
+                        {page?.content || selected.content ||
                           selected.summary ||
                           "This feed contains a headline only. Open the original to read the full story."}
                       </Text>
                     </ScrollView>
-                  </Scene>
+                    )}
+                  />
                 </View>
                 {readerMenu ? (
                   <View style={StyleSheet.absoluteFill}>
@@ -1910,7 +2018,7 @@ function RessApp() {
                         onPress={() => {
                           setReaderMenu(false);
                           void Share.share({
-                            message: `${selected.title}\n${selected.url}`,
+                            message: `${selected.title}\n${pageUrl || selected.url}`,
                           }).catch(() =>
                             setConfirmation({ title: "Could not share article", message: "Please try again." }),
                           );
@@ -1924,7 +2032,7 @@ function RessApp() {
                         accessibilityRole="button"
                         onPress={() => {
                           setReaderMenu(false);
-                          void Clipboard.setStringAsync(selected.url).catch(
+                          void Clipboard.setStringAsync(pageUrl || selected.url).catch(
                             () =>
                               setConfirmation({ title: "Could not copy link", message: "Please try again." }),
                           );
@@ -1939,7 +2047,7 @@ function RessApp() {
                         accessibilityRole="button"
                         onPress={() => {
                           setReaderMenu(false);
-                          void Browser.openBrowserAsync(selected.url).catch(
+                          void openExternalBrowser(pageUrl || selected.url).catch(
                             () =>
                               setConfirmation({ title: "Could not open article", message: "Please try again." }),
                           );
@@ -2269,11 +2377,11 @@ function createStyles(c: Palette, dark: boolean) {
       borderWidth: 1,
       borderColor: dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
     },
-    releaseBody: { flexDirection: "row", alignItems: "flex-start", gap: 14 },
-    releaseText: { flex: 1, minWidth: 0 },
-    releaseAvatar: {
-      width: 56,
-      height: 56,
+    squareBody: { flexDirection: "row-reverse", alignItems: "flex-start", gap: 14 },
+    squareText: { flex: 1, minWidth: 0 },
+    squareThumbnail: {
+      width: 72,
+      height: 72,
       aspectRatio: 1,
       borderRadius: 10,
       marginVertical: 0,
@@ -2640,7 +2748,13 @@ function createStyles(c: Palette, dark: boolean) {
       borderBottomWidth: 1,
     },
     settingCopy: { flex: 1, gap: 4 },
+    readingSettingsLabel: { fontFamily: f.medium, color: c.muted, fontSize: 16, lineHeight: 24, marginBottom: 12 },
+    readingSettingsOption: { flex: 1, fontFamily: f.medium, color: c.ink, fontSize: 18, lineHeight: 26 },
     settingTitle: { fontFamily: f.medium, color: c.ink, fontSize: 16 },
+    modeRadio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+    modeRadioDot: { width: 10, height: 10, borderRadius: 5 },
+    readingStatus: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 12 },
+    readingFallback: { padding: 16, borderRadius: 16, backgroundColor: c.surface, marginBottom: 24 },
     reader: { flex: 1, width: "100%", maxWidth: 720, alignSelf: "center" },
     readerBar: {
       paddingHorizontal: 16,

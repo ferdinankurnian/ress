@@ -31,6 +31,7 @@ import {
   resolveTheme,
   theme,
   type ThemePreference,
+  type BackgroundPreference,
 } from "../ui/theme";
 import { renderWidgetSnapshot } from "./bridge.android";
 
@@ -57,11 +58,12 @@ function Configuration({
   const [preferences, setPreferences] =
     useState<WidgetSettings>(widgetDefaults);
   const [themeChoice, setThemeChoice] = useState<ThemePreference>("device");
+  const [background, setBackground] = useState<BackgroundPreference>("warm");
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const scheme = resolveTheme(themeChoice, useColorScheme());
-  const c = colorsFor(scheme);
+  const c = colorsFor(scheme, background);
   const s = useMemo(
     () =>
       StyleSheet.create({
@@ -144,6 +146,7 @@ function Configuration({
         if (!mounted) return;
         setSources(library.sources);
         setThemeChoice(library.settings.theme);
+        setBackground(library.settings.background);
         setPreferences({
           ...saved,
           sourceId: library.sources.some(

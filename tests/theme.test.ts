@@ -15,3 +15,19 @@ test("both palettes keep yellow controls readable with dark ink", () => {
   }
   expect(colorsFor("dark").paper).not.toBe(colorsFor("light").paper);
 });
+
+test("plain backgrounds are neutral in both schemes and preserve the accent", () => {
+  expect(colorsFor("light", "plain").paper).toBe("#FFFFFF");
+  expect(colorsFor("dark", "plain").paper).toBe("#000000");
+  for (const scheme of ["light", "dark"] as const) {
+    const plain = colorsFor(scheme, "plain");
+    expect(plain.yellow).toBe(theme.color.yellow);
+    expect(plain.accentInk).toBe(theme.color.accentInk);
+    for (const key of ["paper", "surface", "ink", "muted", "rule"] as const) {
+      const hex = plain[key].slice(1);
+      expect(hex.slice(0, 2)).toBe(hex.slice(2, 4));
+      expect(hex.slice(2, 4)).toBe(hex.slice(4, 6));
+    }
+    expect(colorsFor(scheme)).toBe(colorsFor(scheme, "warm"));
+  }
+});

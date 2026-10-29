@@ -200,6 +200,11 @@ await expect(
 ).toBeVisible();
 await page.getByRole("button", { name: "Read Story 1", exact: true }).click();
 await expect(page.getByRole("button", { name: "Back to stories", exact: true })).toBeVisible();
+await expect(page.getByRole("button", { name: "Show reading mode", exact: true })).toBeVisible();
+await page.getByRole("button", { name: "Show reading mode", exact: true }).click();
+await expect(page.getByText("Cached feed text", { exact: true })).toBeVisible();
+await expect(page.getByTestId("article-reader").getByText("A story for checking the reader.", { exact: true })).toBeVisible();
+await expect(page.getByRole("button", { name: "Show web page", exact: true })).toBeVisible();
 await page.screenshot({ path: `${output}/reader.png` });
 await page
   .getByRole("button", { name: "Back to stories", exact: true })
@@ -224,6 +229,13 @@ await expect(
 ).toBeVisible();
 await expect(page.getByText("Widget preview", { exact: true })).toHaveCount(0);
 await page.screenshot({ path: `${output}/settings.png` });
+await page.getByRole("button", { name: "Open Reading", exact: true }).click();
+await expect(page.getByRole("radio", { name: "Web page by default", exact: true })).toBeChecked();
+await page.getByRole("radio", { name: "Reading mode by default", exact: true }).click();
+await expect(page.getByRole("radio", { name: "Reading mode by default", exact: true })).toBeChecked();
+await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("ress.settings.v1") || "{}").readingMode)).toBe("reading");
+await page.screenshot({ path: `${output}/reading-settings.png` });
+await page.getByRole("button", { name: "Back to Settings", exact: true }).click();
 await page
   .getByRole("button", { name: "Open Text size", exact: true })
   .click();
@@ -249,7 +261,7 @@ await page
   .click();
 await page.getByRole("button", { name: "Open About", exact: true }).click();
 await expect(page.getByRole("link", { name: "Ress on GitHub" })).toBeVisible();
-await expect(page.getByText("Not added yet", { exact: true })).toBeVisible();
+await expect(page.getByRole("button", { name: "MIT License", exact: true })).toBeVisible();
 await page.screenshot({ path: `${output}/about.png` });
 await page
   .getByRole("button", { name: "Back to Settings", exact: true })
@@ -280,6 +292,7 @@ for (const tab of ["Sources", "Settings", "Sources", "Settings"]) {
       await expect(action.locator("..")).toHaveCSS("opacity", "0");
   }
 }
+await page.getByRole("button", { name: "Open Appearance", exact: true }).click();
 // Fast choices must retain the last tap and preserve other preferences.
 await page.evaluate(() => {
   for (const label of ["Dark", "Light", "Dark", "Light", "Dark", "Light"])
@@ -297,10 +310,26 @@ await expect(
   page.getByRole("radio", { name: "Dark theme", exact: true }),
 ).toBeChecked();
 await page.screenshot({ path: `${output}/settings-dark.png` });
+await page.getByRole("button", { name: "Back to Settings", exact: true }).click();
+await page.getByRole("button", { name: "Open Reading", exact: true }).click();
+await expect(page.getByRole("radio", { name: "Reading mode by default", exact: true })).toBeChecked();
+await page.screenshot({ path: `${output}/reading-settings-dark.png` });
+await page.getByRole("button", { name: "Back to Settings", exact: true }).click();
 await page.getByRole("tab", { name: "Feed", exact: true }).click();
 await page.screenshot({ path: `${output}/feed-dark.png` });
+await page.evaluate((url) => localStorage.setItem("ress.reader.v1", JSON.stringify({
+  [url]: { type: "ress:article", url, title: "The full website article", byline: "Website author", image: "https://one.test/cover.png",
+    content: "This reading copy comes from the original website, beyond the RSS summary. It keeps the full article available in the Ress reader.\n\nA second paragraph from the website." },
+})), articles[0].url);
 await page.getByRole("button", { name: "Read Story 1", exact: true }).click();
+await expect(page.getByRole("button", { name: "Show web page", exact: true })).toBeVisible();
+await expect(page.getByText("The full website article", { exact: true })).toBeVisible();
+await expect(page.getByText("Cached feed text", { exact: true })).toBeHidden();
 await page.screenshot({ path: `${output}/reader-dark.png` });
+await page.getByRole("button", { name: "Show web page", exact: true }).click();
+await expect(page.getByRole("button", { name: "Show reading mode", exact: true })).toBeVisible();
+// An individual toggle must not overwrite the saved default.
+await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("ress.settings.v1") || "{}").readingMode)).toBe("reading");
 await page
   .getByRole("button", { name: "Back to stories", exact: true })
   .click();
@@ -311,6 +340,7 @@ await expect(
 await expect.poll(currentScheme).toBe("dark");
 await page.getByRole("tab", { name: "Settings", exact: true }).click();
 await page.emulateMedia({ colorScheme: "dark" });
+await page.getByRole("button", { name: "Open Appearance", exact: true }).click();
 await page.getByRole("radio", { name: "Light theme", exact: true }).click();
 await expect.poll(currentScheme).toBe("light");
 await page.getByRole("radio", { name: "Device theme", exact: true }).click();
@@ -399,6 +429,8 @@ await writeFile(
         "source swipe",
         "article image",
         "reader",
+        "article mode toggle and clearly labeled feed fallback",
+        "default reading mode persistence",
         "saved search and persistence",
         "page headers",
         "settings",
