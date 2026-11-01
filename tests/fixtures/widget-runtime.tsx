@@ -92,7 +92,7 @@ drawings.length = 0;
 await task({ ...info, widgetAction: "WIDGET_RESIZED" });
 assert.equal(drawings.length, 2, "draw cached text before waiting for images");
 assert.match(JSON.stringify(drawings[0]), /A cached headline/);
-assert.equal(drawings[0].light.props.backgroundColor, "#F3EAB6");
+assert.equal(drawings[0].light.props.backgroundColor, "#F6F4E9");
 assert.equal(drawings[0].dark.props.backgroundColor, "#1B1C17");
 assert.match(JSON.stringify(drawings[1]), /ImageWidget/);
 assert.match(JSON.stringify(drawings[1]), /data:image\/png;base64,AQID/);
@@ -123,6 +123,7 @@ assert.ok(header.children[2].children[0].props.svgString.includes("<svg"));
 assert.equal(row.props.orientation, "HORIZONTAL");
 assert.equal(row.children[0].props.width, 0);
 assert.equal(row.children[0].children[1].props.fontFamily, "HankenGrotesk_700Bold");
+assert.equal(row.children[0].children[1].props.fontWeight, "bold");
 assert.equal(row.children[0].children[1].props.maxLines, 3);
 assert.equal(row.props.borderWidth?.bottom ?? 0, 0, "a single row has no trailing separator");
 const thumbnail = row.children[1];
@@ -147,16 +148,21 @@ for (const width of [250, 300, 420]) {
     assert.equal(image.imageHeight, 72);
   }
 }
-// A non-square image uses the full row above its details, independent of domain.
+// Landscape thumbnails stay compact beside details at every host width and theme.
 await put(keys.articles, [{ ...article, image: "https://source.test/wide.png" }]);
-drawings.length = 0;
-await task({ ...info, widgetAction: "WIDGET_RESIZED" });
-const wideRow = drawings.at(-1).light.children[1].children[0].children[0];
-assert.equal(wideRow.props.orientation, "VERTICAL");
-assert.equal(wideRow.children[0].type, "ImageWidget");
-assert.equal(wideRow.children[0].props.imageWidth, 268);
-assert.equal(wideRow.children[0].props.imageHeight, 151);
-assert.equal(wideRow.children[1].children[1].props.maxLines, 3);
+for (const width of [250, 300, 420]) {
+  drawings.length = 0;
+  await task({ ...info, width, widgetAction: "WIDGET_RESIZED" });
+  for (const mode of ["light", "dark"]) {
+    const wideRow = drawings.at(-1)[mode].children[1].children[0].children[0];
+    assert.equal(wideRow.props.orientation, "HORIZONTAL");
+    assert.equal(wideRow.children[1].type, "ImageWidget");
+    assert.equal(wideRow.children[1].props.imageWidth, 72);
+    assert.equal(wideRow.children[1].props.imageHeight, 41);
+    assert.equal(wideRow.children[0].children[1].props.maxLines, 3);
+    assert.equal(wideRow.children[0].children[1].props.fontWeight, "bold");
+  }
+}
 for (const [scheme, paper, rule] of [["light", "#FFFFFF", "#D6D6D6"], ["dark", "#000000", "#333333"]]) {
   await put(keys.settings, { ...defaults, theme: scheme, background: "plain" });
   drawings.length = 0;

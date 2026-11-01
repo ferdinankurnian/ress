@@ -62,13 +62,14 @@ import PaletteIcon from "lucide-react-native/icons/palette";
 import Moon from "lucide-react-native/icons/moon";
 import Type from "lucide-react-native/icons/type";
 import BookOpen from "lucide-react-native/icons/book-open";
+import Glasses from "lucide-react-native/icons/glasses";
 import { ConfirmDialog } from "./src/ui/ConfirmDialog";
 import Info from "lucide-react-native/icons/info";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import Github from "./src/ui/GithubIcon";
 
 import { licenseText } from "./src/data/license";
-import { Scene, MotionModal, PopIn } from "./src/ui/Motion";
+import { Scene, MotionModal, PopIn, SlidePage } from "./src/ui/Motion";
 import * as ImagePicker from "expo-image-picker";
 import Globe from "lucide-react-native/icons/globe";
 import FileText from "lucide-react-native/icons/file-text";
@@ -540,12 +541,14 @@ function Action({
   onPress,
   active = false,
   disabled = false,
+  readerAction = false,
 }: {
   label: string;
   icon: typeof Rss;
   onPress: () => void;
   active?: boolean;
   disabled?: boolean;
+  readerAction?: boolean;
 }) {
   const { c, s } = useTheme();
   return (
@@ -557,7 +560,7 @@ function Action({
       onPress={(event) => { event.stopPropagation(); onPress(); }}
       style={({ pressed }) => [
         s.iconButton,
-        active && Icon !== Bookmark && Icon !== BookOpen && s.selected,
+        active && !readerAction && Icon !== Bookmark && Icon !== BookOpen && s.selected,
         pressed && s.pressed,
         disabled && s.disabled,
       ]}
@@ -566,10 +569,10 @@ function Action({
         size={22}
         color={
           active
-            ? Icon === Bookmark
+            ? (readerAction || Icon === Bookmark)
               ? c.yellow
               : c.accentInk
-            : (Icon === Bookmark || Icon === BookOpen)
+            : !readerAction && (Icon === Bookmark || Icon === BookOpen)
               ? c.muted
               : c.ink
         }
@@ -629,6 +632,8 @@ function RessApp() {
   });
   const [tab, setTab] = useState<Tab>("Feed");
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("main");
+  const lastSettingsPage = useRef<SettingsPage>("Appearance");
+  if (settingsPage !== "main") lastSettingsPage.current = settingsPage === "License" ? "About" : settingsPage;
   const [scrolled, setScrolled] = useState(false);
   const [removing, setRemoving] = useState<Source | null>(null);
   const [removingBusy, setRemovingBusy] = useState(false);
@@ -712,6 +717,9 @@ function RessApp() {
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [selected, setSelected] = useState<Article | null>(null);
+  const lastArticle = useRef(selected);
+  if (selected) lastArticle.current = selected;
+  const readerArticle = selected ?? lastArticle.current;
   const [readerMenu, setReaderMenu] = useState(false);
   const [readerBarHeight, setReaderBarHeight] = useState(60);
   const [readingMode, setReadingMode] = useState<ReadingMode>("web");
@@ -1273,17 +1281,10 @@ function RessApp() {
         ) : null}
       </View>
     );
-  return (
-    <ThemeContext.Provider value={themeValue}>
-      <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
-        <StatusBar style={dark ? "light" : "dark"} />
-        <View style={s.shell}>
-          <View
-            style={{ flex: 1 }}
-            accessibilityElementsHidden={!!selected}
-            importantForAccessibility={selected ? "no-hide-descendants" : "auto"}
-            pointerEvents={selected ? "none" : "auto"}
-          >
+  // Render retained settings pages with their own page identity during push/pop.
+  function renderPage(settingsPage: SettingsPage, tab: Tab) {
+    return (
+      <View style={{ flex: 1 }}>
           <View
             testID="page-header"
             style={[
@@ -1344,7 +1345,7 @@ function RessApp() {
               />
             </View>
           ) : null}
-          <Scene scene={`${tab}:${settingsPage}`}>
+          <Scene scene={tab}>
             {tab === "Feed" || tab === "Saved" ? (
               <FlatList
                 ref={feedListRef}
@@ -1518,32 +1519,33 @@ function RessApp() {
                   <>
                     {settingsPage === "main" ? (
                       <>
-                        <View style={s.aboutLinks}>
-                          {(
-                            [
-                              { title: "Appearance", icon: PaletteIcon },
-                              { title: "Import & Export", icon: FileText },
-                              { title: "Reading", icon: BookOpen },
-                              { title: "Text size", icon: Type },
-                              { title: "Widget", icon: LayoutGrid },
-                              { title: "About", icon: Info },
-                            ] as const
-                          ).map(({ title, icon: Icon }) => (
-                            <SettingsRow
-                              key={title}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Open ${title}`}
-                              style={title === "About" ? { borderBottomWidth: 0 } : undefined}
-                              onPress={() => setSettingsPage(title)}
-                            >
-                              <Icon size={21} color={c.ink} />
-                              <Text style={[s.settingTitle, { flex: 1 }]}>
-                                {title}
-                              </Text>
-                              <ChevronRight size={18} color={c.muted} />
-                            </SettingsRow>
-                          ))}
-                        </View>
+                        {([
+                          [
+                            { title: "Appearance", icon: PaletteIcon },
+                            { title: "Text size", icon: Type },
+                            { title: "Reading", icon: BookOpen },
+                          ],
+                          [{ title: "Import & Export", icon: FileText }],
+                          [{ title: "About", icon: Info }],
+                        ] as const).map((group) => (
+                          <View key={group[0].title} style={[s.aboutLinks, { marginBottom: 16 }]}>
+                            {group.map(({ title, icon: Icon }, index) => (
+                              <SettingsRow
+                                key={title}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Open ${title}`}
+                                style={index === group.length - 1 ? { borderBottomWidth: 0 } : undefined}
+                                onPress={() => setSettingsPage(title)}
+                              >
+                                <Icon size={21} color={c.ink} />
+                                <Text style={[s.settingTitle, { flex: 1 }]}>
+                                  {title}
+                                </Text>
+                                <ChevronRight size={18} color={c.muted} />
+                              </SettingsRow>
+                            ))}
+                          </View>
+                        ))}
                       </>
                     ) : settingsPage === "Appearance" ? (
                       <>
@@ -1841,7 +1843,7 @@ function RessApp() {
               </ScrollView>
             )}
           </Scene>
-          <SafeAreaView edges={["bottom"]} style={s.navSafe}>
+          {settingsPage === "main" && <SafeAreaView edges={["bottom"]} style={s.navSafe}>
             <View style={s.nav}>
               {tabs.map(({ name, icon: Icon }) => (
                 <Pressable
@@ -1886,9 +1888,44 @@ function RessApp() {
                 </Pressable>
               ))}
             </View>
-          </SafeAreaView>
+          </SafeAreaView>}
+      </View>
+    );
+  }
+  return (
+    <ThemeContext.Provider value={themeValue}>
+      <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
+        <StatusBar style={dark ? "light" : "dark"} />
+        <View style={s.shell}>
+          <View
+            style={{ flex: 1 }}
+            aria-hidden={!!selected || (tab === "Settings" && settingsPage !== "main")}
+            accessibilityElementsHidden={!!selected || (tab === "Settings" && settingsPage !== "main")}
+            importantForAccessibility={selected || (tab === "Settings" && settingsPage !== "main") ? "no-hide-descendants" : "auto"}
+            pointerEvents={selected || (tab === "Settings" && settingsPage !== "main") ? "none" : "auto"}
+          >
+            {renderPage("main", tab)}
           </View>
-          {selected ? (
+          <SlidePage testID="settings-page" visible={tab === "Settings" && settingsPage !== "main"} backgroundColor={c.paper}>
+            <SafeAreaView edges={["bottom"]} style={{ flex: 1 }}
+              aria-hidden={!!selected || settingsPage === "License"}
+              accessibilityElementsHidden={!!selected || settingsPage === "License"}
+              importantForAccessibility={selected || settingsPage === "License" ? "no-hide-descendants" : "auto"}
+              pointerEvents={selected || settingsPage === "License" ? "none" : "auto"}>
+              {renderPage(lastSettingsPage.current, "Settings")}
+            </SafeAreaView>
+          </SlidePage>
+          <SlidePage testID="license-page" visible={tab === "Settings" && settingsPage === "License"} backgroundColor={c.paper}>
+            <SafeAreaView edges={["bottom"]} style={{ flex: 1 }}
+              aria-hidden={!!selected}
+              accessibilityElementsHidden={!!selected}
+              importantForAccessibility={selected ? "no-hide-descendants" : "auto"}
+              pointerEvents={selected ? "none" : "auto"}>
+              {renderPage("License", "Settings")}
+            </SafeAreaView>
+          </SlidePage>
+          <SlidePage testID="reader-page" visible={!!selected} backgroundColor={c.paper}>
+          {readerArticle ? (
             <SafeAreaView
               edges={["bottom"]}
               style={[StyleSheet.absoluteFill, { backgroundColor: c.paper }]}
@@ -1908,24 +1945,26 @@ function RessApp() {
                     onPress={() => { if (!articleContent.current?.goBack()) setSelected(null); }}
                   />
                   <Text numberOfLines={1} ellipsizeMode="tail" style={[s.small, { flex: 1, minWidth: 0, fontSize: 15, marginHorizontal: 8 }]}>
-                    {readingMode === "reading" ? "Reading mode" : (() => { try { return new URL(pageUrl).hostname; } catch { return selected.source; } })()}
+                    {readingMode === "reading" ? "Reading mode" : (() => { try { return new URL(pageUrl).hostname; } catch { return readerArticle.source; } })()}
                   </Text>
                   <View style={s.actionRow}>
                     <Action
-                      icon={BookOpen}
+                      icon={Glasses}
+                      readerAction
                       label={readingMode === "reading" ? "Show web page" : "Show reading mode"}
                       active={readingMode === "reading"}
                       onPress={() => { setReaderMenu(false); setReadingMode((mode) => mode === "web" ? "reading" : "web"); }}
                     />
                     <Action
                       icon={Bookmark}
+                      readerAction
                       label={
-                        saved.includes(selected.id)
+                        saved.includes(readerArticle.id)
                           ? "Unsave article"
                           : "Save article"
                       }
-                      active={saved.includes(selected.id)}
-                      onPress={() => toggleSave(selected)}
+                      active={saved.includes(readerArticle.id)}
+                      onPress={() => toggleSave(readerArticle)}
                     />
                     <Action
                       icon={Ellipsis}
@@ -1936,9 +1975,9 @@ function RessApp() {
                 </View>
                 <View style={{ flex: 1, overflow: "hidden" }}>
                   <ArticleContent
-                    key={selected.id}
+                    key={readerArticle.id}
                     ref={articleContent}
-                    url={selected.url}
+                    url={readerArticle.url}
                     mode={readingMode}
                     colors={c}
                     onNavigation={(url, canGoBack) => { setPageUrl(url); setPageCanGoBack(canGoBack); }}
@@ -1963,22 +2002,22 @@ function RessApp() {
                         <Favicon
                           uri={
                             sources.find(
-                              (source) => source.id === selected.sourceId,
+                              (source) => source.id === readerArticle.sourceId,
                             )?.customIcon ||
-                            selected.favicon ||
-                            faviconUrl(selected.url)
+                            readerArticle.favicon ||
+                            faviconUrl(readerArticle.url)
                           }
-                          title={selected.source}
+                          title={readerArticle.source}
                           size={24}
                         />
-                        <Text style={s.sourceName}>{selected.source}</Text>
+                        <Text style={s.sourceName}>{readerArticle.source}</Text>
                       </View>
                       <Text selectable style={s.readerTitle}>
-                        {page?.title || selected.title}
+                        {page?.title || readerArticle.title}
                       </Text>
-                      <Text style={s.small}>{page?.byline || dateLabel(selected.date)}</Text>
-                      {!isGitHubRelease(page?.url || selected.url) && (
-                        <Thumbnail uri={page ? page.image : selected.image} />
+                      <Text style={s.small}>{page?.byline || dateLabel(readerArticle.date)}</Text>
+                      {!isGitHubRelease(page?.url || readerArticle.url) && (
+                        <Thumbnail uri={page ? page.image : readerArticle.image} />
                       )}
                       <View style={s.readerRule} />
                       <Text
@@ -1989,8 +2028,8 @@ function RessApp() {
                           settings.readingSize === "small" && s.readingSmall,
                         ]}
                       >
-                        {page?.content || selected.content ||
-                          selected.summary ||
+                        {page?.content || readerArticle.content ||
+                          readerArticle.summary ||
                           "This feed contains a headline only. Open the original to read the full story."}
                       </Text>
                     </ScrollView>
@@ -2018,7 +2057,7 @@ function RessApp() {
                         onPress={() => {
                           setReaderMenu(false);
                           void Share.share({
-                            message: `${selected.title}\n${pageUrl || selected.url}`,
+                            message: `${readerArticle.title}\n${pageUrl || readerArticle.url}`,
                           }).catch(() =>
                             setConfirmation({ title: "Could not share article", message: "Please try again." }),
                           );
@@ -2032,7 +2071,7 @@ function RessApp() {
                         accessibilityRole="button"
                         onPress={() => {
                           setReaderMenu(false);
-                          void Clipboard.setStringAsync(pageUrl || selected.url).catch(
+                          void Clipboard.setStringAsync(pageUrl || readerArticle.url).catch(
                             () =>
                               setConfirmation({ title: "Could not copy link", message: "Please try again." }),
                           );
@@ -2047,7 +2086,7 @@ function RessApp() {
                         accessibilityRole="button"
                         onPress={() => {
                           setReaderMenu(false);
-                          void openExternalBrowser(pageUrl || selected.url).catch(
+                          void openExternalBrowser(pageUrl || readerArticle.url).catch(
                             () =>
                               setConfirmation({ title: "Could not open article", message: "Please try again." }),
                           );
@@ -2062,6 +2101,7 @@ function RessApp() {
               </View>
             </SafeAreaView>
           ) : null}
+          </SlidePage>
         </View>
         <ConfirmDialog visible={!!removing} title="Remove source?" colors={c} cancelLabel="Cancel" confirmLabel={removingBusy ? "Removing…" : "Remove"} destructive busy={removingBusy} onClose={() => setRemoving(null)} onConfirm={() => void confirmRemoveSource()}>
           {removing && <View style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 16, backgroundColor: c.surface }}>

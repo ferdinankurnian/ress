@@ -85,6 +85,7 @@ test("native widget insets belong to header and rows, leaving the scroll viewpor
     const row = await readFile(`${root}/layout/${name}.xml`, "utf8");
     expect(XMLValidator.validate(row)).toBe(true);
     expect(row).toContain('@font/ress_hanken_bold');
+    expect(row).toContain('android:textStyle="bold"');
     expect(row).toContain('android:layout_weight="1"');
     expect(row).not.toContain('fitXY');
     expect(row).toContain('android:gravity="top"');
@@ -168,7 +169,7 @@ test("native adapter declares both rectangle and square row layouts", async () =
   expect(source).toContain("public int getViewTypeCount() { return 2; }");
 });
 
-test("square widget details share a top-aligned row with a 72dp thumbnail", async () => {
+test("widget thumbnails stay beside the text with compact square and landscape sizes", async () => {
   const parser = new XMLParser({ ignoreAttributes: false });
   const xml = await readFile("plugins/widget/res/layout/ress_native_row_square.xml", "utf8");
   const row = parser.parse(xml).LinearLayout.LinearLayout.LinearLayout;
@@ -178,7 +179,11 @@ test("square widget details share a top-aligned row with a 72dp thumbnail", asyn
   expect(row.LinearLayout["@_android:layout_weight"]).toBe("1");
   expect(row.LinearLayout.LinearLayout.TextView["@_android:id"]).toBe("@+id/ress_source");
   expect(row.LinearLayout.TextView[0]["@_android:maxLines"]).toBe("3");
-  const standard = parser.parse(await readFile("plugins/widget/res/layout/ress_native_row.xml", "utf8")).LinearLayout.LinearLayout;
-  expect(standard.ImageView["@_android:layout_width"]).toBe("match_parent");
-  expect(standard.ImageView["@_android:adjustViewBounds"]).toBe("true");
+  const standard = parser.parse(await readFile("plugins/widget/res/layout/ress_native_row.xml", "utf8")).LinearLayout.LinearLayout.LinearLayout;
+  expect(standard["@_android:orientation"]).toBe("horizontal");
+  expect(standard["@_android:gravity"]).toBe("top");
+  expect(standard.ImageView["@_android:layout_width"]).toBe("72dp");
+  expect(standard.ImageView["@_android:layout_height"]).toBe("41dp");
+  expect(standard.ImageView["@_android:scaleType"]).toBe("fitCenter");
+  expect(standard.LinearLayout["@_android:layout_weight"]).toBe("1");
 });

@@ -34,14 +34,13 @@ export function RessWidget({
   const contentWidth = Math.max(0, width - 32);
   // Keep the title legible and reserve the full refresh hit area at every width.
   const statusWidth = Math.max(0, Math.min(96, contentWidth - 120));
-  const thumbnailWidth = contentWidth;
   const visibleArticles = articles.slice(0, 10);
   return (
     <FlexWidget
       style={{
         width: "match_parent",
         height: "match_parent",
-        backgroundColor: background === "plain" || scheme === "dark" ? c.paper : c.yellowSoft,
+        backgroundColor: c.paper,
         borderRadius: 24,
       }}
     >
@@ -108,17 +107,17 @@ export function RessWidget({
               const square = a.thumbnailLayout === "square";
               const image = a.image && a.thumbnailLayout !== "hidden" ? (
                 <ImageWidget image={a.image as ImageWidgetSource}
-                  imageWidth={square ? 72 : thumbnailWidth}
-                  imageHeight={square ? 72 : Math.round(thumbnailWidth * 9 / 16)}
+                  imageWidth={72}
+                  imageHeight={square ? 72 : Math.round(72 * 9 / 16)}
                   radius={8} resizeMode="cover"
-                  style={square ? { marginLeft: 12 } : { marginBottom: 10 }} />
+                  style={{ marginLeft: 12 }} />
               ) : null;
               return (
                 <FlexWidget
                   key={a.id}
                   style={{
                     width: "match_parent",
-                    flexDirection: square ? "row" : "column",
+                    flexDirection: "row",
                     alignItems: "flex-start",
                     // Insets belong to scrollable rows, not the viewport.
                     marginHorizontal: 16,
@@ -131,8 +130,7 @@ export function RessWidget({
                     uri: `ress://article?id=${encodeURIComponent(a.id)}`,
                   }}
                 >
-                  {!square && image}
-                  <FlexWidget style={square ? { width: 0, flex: 1 } : { width: "match_parent" }}>
+                  <FlexWidget style={{ width: 0, flex: 1 }}>
                   <FlexWidget
                     style={{
                       flexDirection: "row",
@@ -168,6 +166,7 @@ export function RessWidget({
                           color: c.ink,
                           fontSize: 17,
                           fontFamily: theme.font.bold,
+                          fontWeight: "bold",
                         }}
                       />
                       <TextWidget
@@ -175,7 +174,7 @@ export function RessWidget({
                         style={{ color: c.muted, fontFamily: theme.font.body, fontSize: 10, marginTop: 7 }}
                       />
                   </FlexWidget>
-                  {square && image}
+                  {image}
                 </FlexWidget>
               );
             })}

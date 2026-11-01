@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Animated, Easing, Modal, PanResponder, View } from "react-native";
+import { AccessibilityInfo, Animated, Easing, Modal, PanResponder, StyleSheet, View, useWindowDimensions } from "react-native";
 export function Scene({
   children,
   scene,
@@ -206,6 +206,63 @@ export function PopIn({
           ],
         },
       ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+/** Keep a pushed page mounted until its return animation completes. */
+export function SlidePage({ visible, backgroundColor, children, testID }: {
+  visible: boolean;
+  backgroundColor: string;
+  testID?: string;
+  children: React.ReactNode;
+}) {
+  const [mounted, setMounted] = useState(visible);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const { width } = useWindowDimensions();
+  const progress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then(value => {
+      if (active) setReducedMotion(value);
+    }).catch(() => {});
+    const listener = AccessibilityInfo.addEventListener("reduceMotionChanged", setReducedMotion);
+    return () => { active = false; listener.remove(); };
+  }, []);
+  useLayoutEffect(() => {
+    if (visible && !mounted) {
+      setMounted(true);
+      return;
+    }
+    if (!mounted) return;
+    const animation = Animated.timing(progress, {
+      toValue: visible ? 1 : 0,
+      duration: reducedMotion ? 0 : visible ? 300 : 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start(({ finished }) => {
+      if (finished && !visible) setMounted(false);
+    });
+    return () => animation.stop();
+  }, [visible, mounted, progress, reducedMotion]);
+  if (!mounted) return null;
+  return (
+    <Animated.View
+      testID={testID}
+      accessibilityViewIsModal={visible}
+      aria-hidden={!visible}
+      accessibilityElementsHidden={!visible}
+      importantForAccessibility={visible ? "auto" : "no-hide-descendants"}
+      pointerEvents={visible ? "auto" : "none"}
+      style={[StyleSheet.absoluteFill, {
+        backgroundColor,
+        transform: [{ translateX: progress.interpolate({
+          inputRange: [0, 1], outputRange: [Math.min(width, 720), 0],
+        }) }],
+      }]}
     >
       {children}
     </Animated.View>

@@ -28,6 +28,15 @@ const page = await browser.newPage({
   viewport: { width: 390, height: 844 },
   deviceScaleFactor: 1,
 });
+const slideX = (id: string) => page.getByTestId(id).evaluate(el => new DOMMatrix(getComputedStyle(el).transform).m41);
+async function expectSlideIn(id: string) {
+  await expect.poll(() => slideX(id), { intervals: [10, 20, 30] }).toBeGreaterThan(0);
+  await expect.poll(() => slideX(id)).toBe(0);
+}
+async function expectSlideOut(id: string) {
+  await expect.poll(() => slideX(id), { intervals: [10, 20, 30] }).toBeGreaterThan(0);
+  await expect(page.getByTestId(id)).toHaveCount(0);
+}
 const errors: string[] = [];
 page.on("pageerror", (e) => {
   errors.push(e.message);
@@ -160,7 +169,10 @@ await expect(page.getByTestId("page-header")).toHaveCSS(
   "border-bottom-color",
   "rgba(0, 0, 0, 0)",
 );
+// Compact square cards can fit without scrolling at the default viewport height.
+await page.setViewportSize({ width: 390, height: 450 });
 await page.getByRole("button", { name: "All", exact: true }).click();
+await expect(page.getByRole("button", { name: "Read Story 2", exact: true })).toBeVisible();
 await page
   .getByRole("button", { name: "Read Story 1", exact: true })
   .evaluate((el) => {
@@ -185,6 +197,7 @@ await expect(page.getByTestId("page-header")).toHaveCSS(
   "border-bottom-color",
   "rgba(0, 0, 0, 0)",
 );
+await page.setViewportSize({ width: 390, height: 844 });
 await page.getByRole("button", { name: "Renamed source", exact: true }).click();
 
 await page
@@ -198,7 +211,9 @@ await expect(
 await expect(
   page.getByRole("button", { name: "Read Story 1", exact: true }),
 ).toBeVisible();
-await page.getByRole("button", { name: "Read Story 1", exact: true }).click();
+await page.getByRole("button", { name: "Read Story 1", exact: true }).evaluate((el: HTMLElement) => el.click());
+await expectSlideIn("reader-page");
+await expect(page.getByRole("tab")).toHaveCount(0);
 await expect(page.getByRole("button", { name: "Back to stories", exact: true })).toBeVisible();
 await expect(page.getByRole("button", { name: "Show reading mode", exact: true })).toBeVisible();
 await page.getByRole("button", { name: "Show reading mode", exact: true }).click();
@@ -208,7 +223,9 @@ await expect(page.getByRole("button", { name: "Show web page", exact: true })).t
 await page.screenshot({ path: `${output}/reader.png` });
 await page
   .getByRole("button", { name: "Back to stories", exact: true })
-  .click();
+  .evaluate((el: HTMLElement) => el.click());
+await expectSlideOut("reader-page");
+await expect(page.getByRole("tab", { name: "Saved", exact: true })).toBeVisible();
 await page.reload();
 await expect(page.getByRole("tab", { name: "Saved", exact: true })).toBeVisible(
   { timeout: 60000 },
@@ -229,13 +246,17 @@ await expect(
 ).toBeVisible();
 await expect(page.getByText("Widget preview", { exact: true })).toHaveCount(0);
 await page.screenshot({ path: `${output}/settings.png` });
-await page.getByRole("button", { name: "Open Reading", exact: true }).click();
+await page.getByRole("button", { name: "Open Reading", exact: true }).evaluate((el: HTMLElement) => el.click());
+await expectSlideIn("settings-page");
+await expect(page.getByRole("tab")).toHaveCount(0);
 await expect(page.getByRole("radio", { name: "Web page by default", exact: true })).toBeChecked();
 await page.getByRole("radio", { name: "Reading mode by default", exact: true }).click();
 await expect(page.getByRole("radio", { name: "Reading mode by default", exact: true })).toBeChecked();
 await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("ress.settings.v1") || "{}").readingMode)).toBe("reading");
 await page.screenshot({ path: `${output}/reading-settings.png` });
-await page.getByRole("button", { name: "Back to Settings", exact: true }).click();
+await page.getByRole("button", { name: "Back to Settings", exact: true }).evaluate((el: HTMLElement) => el.click());
+await expectSlideOut("settings-page");
+await expect(page.getByRole("tab", { name: "Settings", exact: true })).toBeVisible();
 await page
   .getByRole("button", { name: "Open Text size", exact: true })
   .click();
@@ -262,6 +283,12 @@ await page
 await page.getByRole("button", { name: "Open About", exact: true }).click();
 await expect(page.getByRole("link", { name: "Ress on GitHub" })).toBeVisible();
 await expect(page.getByRole("button", { name: "MIT License", exact: true })).toBeVisible();
+await page.getByRole("button", { name: "MIT License", exact: true }).evaluate((el: HTMLElement) => el.click());
+await expectSlideIn("license-page");
+await expect(page.getByRole("tab")).toHaveCount(0);
+await page.getByRole("button", { name: "Back to About", exact: true }).evaluate((el: HTMLElement) => el.click());
+await expectSlideOut("license-page");
+await expect(page.getByRole("link", { name: "Ress on GitHub" })).toBeVisible();
 await page.screenshot({ path: `${output}/about.png` });
 await page
   .getByRole("button", { name: "Back to Settings", exact: true })
@@ -349,6 +376,8 @@ await page.emulateMedia({ colorScheme: "light" });
 await expect.poll(currentScheme).toBe("light");
 await page.getByRole("radio", { name: "Dark theme", exact: true }).click();
 await expect.poll(currentScheme).toBe("dark");
+await expect(page.getByRole("tab")).toHaveCount(0);
+await page.getByRole("button", { name: "Back to Settings", exact: true }).click();
 await page.getByRole("tab", { name: "Sources", exact: true }).click();
 await page.getByRole("button", { name: "Add source", exact: true }).click();
 await page.getByRole("button", { name: "Add feed", exact: true }).click();
@@ -415,6 +444,15 @@ expect(
       JSON.parse(localStorage.getItem("ress.sources.v1") || "[]")[0].customIcon,
   ),
 ).toMatch(/^data:image\/png;base64,/);
+// Reduced-motion navigation still opens full pages and restores the root tabs.
+await page.emulateMedia({ reducedMotion: "reduce" });
+await page.getByRole("tab", { name: "Settings", exact: true }).click();
+await page.getByRole("button", { name: "Open Appearance", exact: true }).click();
+await expect.poll(() => slideX("settings-page")).toBe(0);
+await expect(page.getByRole("tab")).toHaveCount(0);
+await page.getByRole("button", { name: "Back to Settings", exact: true }).click();
+await expect(page.getByTestId("settings-page")).toHaveCount(0);
+await expect(page.getByRole("tab", { name: "Settings", exact: true })).toBeVisible();
 await writeFile(
   ".hallmark/ui-check.json",
   JSON.stringify(
@@ -434,6 +472,10 @@ await writeFile(
         "saved search and persistence",
         "page headers",
         "settings",
+        "reader and settings horizontal push/pop transitions",
+        "nested license navigation",
+        "tabs hidden in detail pages and restored on back",
+        "reduced-motion page navigation",
         "tab radius",
         "automatic favicon preview and custom icon persistence",
         "reading size submenu",
