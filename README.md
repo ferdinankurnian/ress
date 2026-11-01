@@ -6,9 +6,7 @@
 
 <p align="center">A personal RSS reader for Android, with a little yellow paper feel.</p>
 
-<!-- Replace this image with one thumbnail containing 3–4 phone screenshots.
-     Suggested screens: feed, reader, sources, and Android home widget. -->
-![Space reserved for Ress screenshots](docs/images/thumbnail-placeholder.svg)
+![Ress app thumbnail](docs/images/ress-thumbnail.png)
 
 Ress keeps the sites you follow in one place. Add your feeds, read the latest posts, and save the ones you want to come back to. It starts empty, so every source is yours to choose.
 
