@@ -98,20 +98,43 @@ test("native widget insets belong to header and rows, leaving the scroll viewpor
   for (const mode of ["light", "dark"]) {
     const xml = await readFile(`${root}/layout/ress_native_content_${mode}.xml`, "utf8");
     expect(XMLValidator.validate(xml)).toBe(true);
-    const surface = parser.parse(xml).LinearLayout;
+    const surface = parser.parse(xml).FrameLayout;
     expect(surface["@_android:padding"]).toBeUndefined();
     expect(surface["@_android:clipToOutline"]).toBe("true");
-    expect(surface.LinearLayout["@_android:paddingLeft"]).toBe("16dp");
+    const header = surface.LinearLayout;
+    expect(header["@_android:paddingLeft"]).toBe("16dp");
     for (const side of ["Top", "Right", "Bottom"])
-      expect(surface.LinearLayout[`@_android:padding${side}`]).toBe("4dp");
-    expect(surface.LinearLayout["@_android:layout_height"]).toBe("48dp");
-    expect(surface.LinearLayout["@_android:gravity"]).toBe("center_vertical");
-    expect(surface.ListView["@_android:layout_width"]).toBe("match_parent");
-    expect(surface.ListView["@_android:layout_weight"]).toBe("1");
-    expect(surface.ListView["@_android:padding"]).toBe("0dp");
-    expect(surface.ListView["@_android:scrollbarStyle"]).toBe("insideOverlay");
+      expect(header[`@_android:padding${side}`]).toBe("4dp");
+    expect(header["@_android:layout_height"]).toBe("48dp");
+    expect(header["@_android:layout_gravity"]).toBe("top");
+    expect(header["@_android:gravity"]).toBe("center_vertical");
+    expect(header["@_android:background"]).toBe(`@drawable/ress_native_header_${mode}`);
+    // Declared after the list, the header floats above rows scrolling behind it.
+    expect(xml.indexOf("<ListView")).toBeLessThan(xml.indexOf("@+id/ress_header"));
+    const list = surface.ListView;
+    expect(list["@_android:layout_width"]).toBe("match_parent");
+    expect(list["@_android:layout_height"]).toBe("match_parent");
+    expect(list["@_android:paddingTop"]).toBe("48dp");
+    expect(list["@_android:clipToPadding"]).toBe("false");
+    expect(list["@_android:scrollbarStyle"]).toBe("insideOverlay");
     expect(xml.match(/@\+id\/ress_refresh/g)).toHaveLength(1);
     expect(xml).toContain('@drawable/ress_native_ripple');
+    const scrim = await readFile(`${root}/drawable/ress_native_header_${mode}.xml`, "utf8");
+    expect(XMLValidator.validate(scrim)).toBe(true);
+    expect(scrim).toContain('android:angle="270"');
+    expect(scrim).toContain("android:endColor");
+  }
+  // The scrim fades into the surface it covers, so it must be tinted with that
+  // surface's paper color instead of a neutral black/white wash.
+  for (const [name, paper] of [
+    ["light", "F6F4E9"],
+    ["dark", "1B1C17"],
+    ["plain_light", "FFFFFF"],
+    ["plain_dark", "000000"],
+  ] as const) {
+    const scrim = await readFile(`${root}/drawable/ress_native_header_${name}.xml`, "utf8");
+    expect(XMLValidator.validate(scrim)).toBe(true);
+    expect(scrim).toContain(`android:endColor="#00${paper}"`);
   }
   for (const variant of ["layout", "layout-night"]) {
     const layout = await readFile(`${root}/${variant}/ress_native_widget.xml`, "utf8");

@@ -153,6 +153,9 @@ index 0000000000000000000000000000000000000000..c0aeeb8ecc818ca36d2ad447b5a9d134
 +            : background == Color.WHITE ? "plain_light"
 +            : background == Color.parseColor("#1B1C17") ? "dark" : "light";
 +        view.setInt(id(c, "surface"), "setBackgroundResource", resource(c, "drawable", "ress_native_" + surface));
++        // The header scrim must fade into the surface it sits on, so it follows
++        // the in-app background preference rather than the device theme.
++        view.setInt(id(c, "header"), "setBackgroundResource", resource(c, "drawable", "ress_native_header_" + surface));
 +        ReadableMap header = child(tree, 0);
 +        ReadableMap brand = child(child(header, 0), 0);
 +        ReadableMap status = child(header, 1);

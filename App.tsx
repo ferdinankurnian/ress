@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  GestureResponderEvent,
   Image,
   KeyboardAvoidingView,
   PanResponder,
@@ -28,6 +29,7 @@ import {
   TextInput,
   View,
   useColorScheme,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import * as SystemUI from "expo-system-ui";
@@ -90,6 +92,9 @@ import {
   relativeTime,
   parseOpml,
   exportOpml,
+  opmlFilename,
+  summarizeImport,
+  mergeImportedSources,
   safeUrl,
 } from "./src/data/feeds";
 import {
@@ -103,6 +108,7 @@ import {
   Settings,
 } from "./src/data/store";
 import { pinWidget, updateWidgets, widgetAvailable } from "./src/widget/bridge";
+import { toast, Toaster } from "./src/ui/Toaster";
 import { theme, colorsFor, resolveTheme, type Palette } from "./src/ui/theme";
 import type { PreparedArticle, ThumbnailLayout } from "./src/ui/articleImages";
 import { prepareArticleImages } from "./src/ui/prepareArticleImages";
@@ -202,7 +208,8 @@ function ArticleBody({ uri, layout, metadata, children }: {
     </>
   );
 }
-const REORDER_HEIGHT = 72;
+// Normal and reorder rows share one height so switching modes never shifts the list.
+const SOURCE_ROW_HEIGHT = 72;
 function ReorderSources({ items, onChange, disabled, onDragging }: {
   items: Source[];
   onChange: (items: Source[]) => void;
@@ -224,11 +231,11 @@ function ReorderSources({ items, onChange, disabled, onDragging }: {
   function update() {
     const current = drag.current;
     if (!current) return;
-    const position = Math.max(0, Math.min((latest.current.length - 1) * REORDER_HEIGHT,
+    const position = Math.max(0, Math.min((latest.current.length - 1) * SOURCE_ROW_HEIGHT,
       current.start + current.dy + offset.current - current.scroll));
     y.setValue(position);
     const from = latest.current.findIndex(item => item.id === current.id);
-    const next = moveItem(latest.current, from, Math.round(position / REORDER_HEIGHT));
+    const next = moveItem(latest.current, from, Math.round(position / SOURCE_ROW_HEIGHT));
     if (next !== latest.current) {
       latest.current = next;
       callbacks.current.onChange(next);
@@ -247,8 +254,8 @@ function ReorderSources({ items, onChange, disabled, onDragging }: {
   function start(id: string, finger: number) {
     if (callbacks.current.disabled) return;
     const index = latest.current.findIndex(item => item.id === id);
-    drag.current = { id, start: index * REORDER_HEIGHT, scroll: offset.current, dy: 0, finger };
-    y.setValue(index * REORDER_HEIGHT);
+    drag.current = { id, start: index * SOURCE_ROW_HEIGHT, scroll: offset.current, dy: 0, finger };
+    y.setValue(index * SOURCE_ROW_HEIGHT);
     setActive(id);
     callbacks.current.onDragging(true);
     viewport.current?.measureInWindow((_x, top, _width, height) => {
@@ -260,7 +267,7 @@ function ReorderSources({ items, onChange, disabled, onDragging }: {
       if (!current || !height) return;
       const direction = current.finger < top + 56 ? -1 : current.finger > top + height - 56 ? 1 : 0;
       if (!direction) return;
-      const next = Math.max(0, Math.min(Math.max(0, latest.current.length * REORDER_HEIGHT - height), offset.current + direction * 8));
+      const next = Math.max(0, Math.min(Math.max(0, latest.current.length * SOURCE_ROW_HEIGHT - height), offset.current + direction * 8));
       if (next === offset.current) return;
       offset.current = next;
       scroll.current?.scrollTo({ y: next, animated: false });
@@ -271,7 +278,7 @@ function ReorderSources({ items, onChange, disabled, onDragging }: {
     <View ref={viewport} style={{ flex: 1 }}>
       <ScrollView ref={scroll} scrollEnabled={!active} scrollEventThrottle={16}
         onScroll={event => { offset.current = event.nativeEvent.contentOffset.y; }}>
-        <View style={{ height: items.length * REORDER_HEIGHT }}>
+        <View style={{ height: items.length * SOURCE_ROW_HEIGHT }}>
           {items.map((source, index) => (
             <ReorderSource key={source.id} source={source} index={index} count={items.length}
               active={active === source.id} y={y} disabled={disabled}
@@ -303,11 +310,11 @@ function ReorderSource({ source, index, count, active, y, disabled, start, move,
   })).current;
   return (
     <Animated.View style={[s.sourceRow, {
-      position: "absolute", left: 0, right: 0, top: 0, height: REORDER_HEIGHT,
+      position: "absolute", left: 0, right: 0, top: 0, height: SOURCE_ROW_HEIGHT,
       paddingVertical: 0, paddingRight: 4, borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.rule, backgroundColor: active ? c.surface : c.paper,
       zIndex: active ? 1 : 0, elevation: active ? 4 : 0,
-      transform: [{ translateY: active ? y : index * REORDER_HEIGHT }],
+      transform: [{ translateY: active ? y : index * SOURCE_ROW_HEIGHT }],
     }]}>
       <Favicon uri={source.customIcon || source.icon || googleFaviconUrl(source.url)} title={source.title} size={32} />
       <Text style={[s.sourceTitle, { flex: 1 }]} numberOfLines={1}>{source.title}</Text>
@@ -427,7 +434,7 @@ function SourceRow({
               title={source.title}
               size={32}
             />
-            <Text style={[s.sourceTitle, { flex: 1 }]} numberOfLines={2}>
+            <Text style={[s.sourceTitle, { flex: 1 }]} numberOfLines={1}>
               {source.title}
             </Text>
           </Animated.View>
@@ -449,7 +456,7 @@ function ArticlePressable({
   children: React.ReactNode;
   label: string;
   onPress: () => void;
-  onLongPress?: () => void;
+  onLongPress?: (event: GestureResponderEvent) => void;
   selected?: boolean;
   source?: boolean;
 }) {
@@ -560,7 +567,7 @@ function Action({
       onPress={(event) => { event.stopPropagation(); onPress(); }}
       style={({ pressed }) => [
         s.iconButton,
-        active && !readerAction && Icon !== Bookmark && Icon !== BookOpen && s.selected,
+        active && !readerAction && Icon !== Bookmark && Icon !== Glasses && s.selected,
         pressed && s.pressed,
         disabled && s.disabled,
       ]}
@@ -572,12 +579,12 @@ function Action({
             ? (readerAction || Icon === Bookmark)
               ? c.yellow
               : c.accentInk
-            : !readerAction && (Icon === Bookmark || Icon === BookOpen)
+            : !readerAction && (Icon === Bookmark || Icon === Glasses)
               ? c.muted
               : c.ink
         }
         strokeWidth={1.7}
-        fill={active && (Icon === Bookmark || Icon === BookOpen) ? c.yellow : c.transparent}
+        fill={active && (Icon === Bookmark || Icon === Glasses) ? c.yellow : c.transparent}
       />
     </Pressable>
   );
@@ -736,8 +743,15 @@ function RessApp() {
     return () => back.remove();
   }, [selected, readerMenu]);
   const [sourceMenu, setSourceMenu] = useState(false);
-  const [confirmation, setConfirmation] = useState<{ title: string; message: string; action?: () => void } | null>(null);
-  const [sheet, setSheet] = useState<"add" | "import" | "edit" | null>(null);
+  const [sourceContext, setSourceContext] = useState<Source | null>(null);
+  const [sourceContextAnchor, setSourceContextAnchor] = useState<{ top: number; left: number } | null>(null);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const [confirmation, setConfirmation] = useState<{ title: string; message: string; confirmLabel?: string; action?: () => void } | null>(null);
+  const [pendingImport, setPendingImport] = useState<Source[] | null>(null);
+  const lastImport = useRef<Source[] | null>(null);
+  if (pendingImport) lastImport.current = pendingImport;
+  const displayedImport = pendingImport ?? lastImport.current;
+  const [sheet, setSheet] = useState<"add" | "import" | "edit" | "export" | "importPreview" | null>(null);
   // Modal keeps its children mounted during its exit animation.
   const lastSheet = useRef(sheet);
   if (sheet) lastSheet.current = sheet;
@@ -830,18 +844,13 @@ function RessApp() {
       setSources(nextSources);
       await put(keys.sources, nextSources);
       setSynced(result.synced);
-      setNotice(
-        result.failures.length
-          ? `Couldn't reach ${result.failures.join(", ")}. Cached reads are still here. Pull down to retry.`
-          : "",
-      );
+      if (result.failures.length)
+        toast(`Couldn't reach ${result.failures.join(", ")}. Cached reads are still here. Pull down to retry.`);
       await updateWidgets().catch(() =>
-        setNotice("Feeds updated. The widget will retry on its next refresh."),
+        toast("Feeds updated. The widget will retry on its next refresh."),
       );
     } catch {
-      setNotice(
-        "Refresh failed. Your cached reads are safe. Pull down to retry.",
-      );
+      toast("Refresh failed. Your cached reads are safe. Pull down to retry.");
     } finally {
       refreshing.current = false;
       setBusy(false);
@@ -866,7 +875,7 @@ function RessApp() {
         void sync();
       })
       .catch(() => {
-        setNotice("Local storage could not be opened. Restart Ress to retry.");
+        toast("Local storage could not be opened. Restart Ress to retry.");
       });
     return () => {
       mounted = false;
@@ -916,12 +925,16 @@ function RessApp() {
     });
     return () => sub.remove();
   }, [ready, synced]);
+  useEffect(() => {
+    // A new source starts reading from its newest story, not the old offset.
+    if (tab === "Feed") feedListRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [sourceFilter, tab]);
   async function persist<T>(key: string, value: T) {
     try {
       await put(key, value);
       return true;
     } catch {
-      setNotice("Could not save this change. Please try again.");
+      toast("Could not save this change. Please try again.");
       return false;
     }
   }
@@ -941,12 +954,14 @@ function RessApp() {
     }
   }
   function toggleSave(article: Article) {
-    const next = savedRef.current.includes(article.id)
+    const removing = savedRef.current.includes(article.id);
+    const next = removing
       ? savedRef.current.filter((id) => id !== article.id)
       : [...savedRef.current, article.id];
     savedRef.current = next;
     setSaved(next);
     void persist(keys.saved, next);
+    toast(removing ? "Removed from Saved." : "Saved for later.");
   }
   function changeSettings(patch: Partial<Settings>) {
     if (Object.entries(patch).every(([key, value]) => settingsRef.current[key as keyof Settings] === value))
@@ -965,17 +980,27 @@ function RessApp() {
       widgetThemeTimer.current = setTimeout(() => {
         widgetThemeTimer.current = null;
         void settingsWrites.current.then(() => updateWidgets()).catch(() =>
-          setNotice("Settings saved. Widget will update on its next refresh."),
+          toast("Settings saved. Widget will update on its next refresh."),
         );
       }, 400);
     }
     return settingsWrites.current;
   }
+  function opmlDestination(filename: string) {
+    if (Platform.OS === "android") return `Download/${filename}`;
+    if (Platform.OS === "web") return `your downloads as ${filename}`;
+    return `the share sheet as ${filename}`;
+  }
+  function closeSheet() {
+    if (sourceBusy) return;
+    setSheet(null);
+    setNotice("");
+  }
   async function saveOpml() {
     setSourceBusy(true);
+    const filename = opmlFilename();
     try {
       const content = exportOpml(sources);
-      const filename = `ress-${new Date().toISOString().slice(0, 10)}.opml`;
       if (Platform.OS === "web") {
         const uri = URL.createObjectURL(new Blob([content], { type: "text/x-opml" }));
         const link = document.createElement("a");
@@ -990,14 +1015,29 @@ function RessApp() {
         await NativeModules.RessDownloads.save(filename, content);
       } else {
         await Share.share({ message: content, title: filename });
+        toast(`OPML shared as ${filename}.`);
         return;
       }
-      setNotice(Platform.OS === "android" ? "OPML saved to Download." : "OPML exported.");
+      toast(
+        Platform.OS === "android"
+          ? `OPML saved to ${opmlDestination(filename)}.`
+          : `OPML downloaded as ${filename}.`,
+      );
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not export sources.");
+      toast(error instanceof Error ? error.message : "Could not export sources.");
     } finally {
       setSourceBusy(false);
     }
+  }
+  function confirmExport() {
+    if (!sources.length) return;
+    const filename = opmlFilename();
+    setConfirmation({
+      title: "Export subscriptions?",
+      message: `${sources.length} source${sources.length === 1 ? "" : "s"} will be written to ${filename}. On Android it will be saved to ${opmlDestination(filename)}.`,
+      confirmLabel: "Export",
+      action: () => void saveOpml(),
+    });
   }
   async function importOpml() {
     setSourceBusy(true);
@@ -1012,15 +1052,26 @@ function RessApp() {
           ? await (await fetch(result.assets[0].uri)).text()
           : await new File(result.assets[0].uri).text();
       const imported = parseOpml(text);
-      const next = [
-        ...new Map(
-          [...imported, ...sources].map((source) => [source.url, source]),
-        ).values(),
-      ];
+      setPendingImport(imported);
+      setSheet("importPreview");
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : "Could not import this file.",
+      );
+    } finally {
+      setSourceBusy(false);
+    }
+  }
+  async function confirmImport() {
+    if (!pendingImport) return;
+    setSourceBusy(true);
+    try {
+      const added = summarizeImport(pendingImport, sources).added.length;
+      const next = mergeImportedSources(pendingImport, sources);
       if (await persist(keys.sources, next)) {
         setSources(next);
         setSheet(null);
-        setNotice(`${next.length - sources.length} new sources imported.`);
+        toast(`${added} new source${added === 1 ? "" : "s"} imported.`);
         await sync();
       }
     } catch (error) {
@@ -1028,6 +1079,7 @@ function RessApp() {
         error instanceof Error ? error.message : "Could not import this file.",
       );
     } finally {
+      setPendingImport(null);
       setSourceBusy(false);
     }
   }
@@ -1086,7 +1138,7 @@ function RessApp() {
         await updateWidgets();
       }
     } catch {
-      setNotice("Could not remove this source. Please try again.");
+      toast("Could not remove this source. Please try again.");
     } finally {
       setRemovingBusy(false);
     }
@@ -1162,6 +1214,22 @@ function RessApp() {
     setSheet("edit");
   }
   const activeIds = new Set(sources.map((s) => s.id));
+  const exportFilename = opmlFilename();
+  const importFeeds = displayedImport ?? [];
+  const importSummary = summarizeImport(importFeeds, sources);
+  function markSourceRead(sourceId: string) {
+    const ids = articles
+      .filter((article) =>
+        sourceId === "all"
+          ? activeIds.has(article.sourceId)
+          : article.sourceId === sourceId,
+      )
+      .map((article) => article.id);
+    const next = [...new Set([...readRef.current, ...ids])];
+    readRef.current = next;
+    setRead(next);
+    void persist(keys.read, next).then(() => updateWidgets());
+  }
   const visible = articles.filter((a) =>
     tab === "Saved"
       ? saved.includes(a.id) &&
@@ -1172,15 +1240,18 @@ function RessApp() {
         (sourceFilter === "all" || a.sourceId === sourceFilter),
   );
   if ((!fonts && !fontError) || !ready) return null;
-  const listHeader =
+  // The picker stays pinned above the scene so switching sources animates only
+  // the posts view below it.
+  const sourcePickerBar =
     tab === "Feed" ? (
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={s.sourcePickerBar}
         contentContainerStyle={s.sourcePicker}
       >
         {[
-          { id: "all", title: "All", url: "", icon: "", customIcon: "" },
+          { id: "all", title: "All", url: "", icon: "", customIcon: "", category: "Feeds" },
           ...sources,
         ].map((source) => {
           const count = articles.filter(
@@ -1196,23 +1267,15 @@ function RessApp() {
                 label={source.title}
                 selected={sourceFilter === source.id}
                 onPress={() => setSourceFilter(source.id)}
-                onLongPress={() =>
-                  setConfirmation({ title: source.title, message: "Mark all stories as read?", action: () => {
-                        const ids = articles
-                          .filter((article) =>
-                            source.id === "all"
-                              ? activeIds.has(article.sourceId)
-                              : article.sourceId === source.id,
-                          )
-                          .map((article) => article.id);
-                        const next = [...new Set([...readRef.current, ...ids])];
-                        readRef.current = next;
-                        setRead(next);
-                        void persist(keys.read, next).then(() =>
-                          updateWidgets(),
-                        );
-                  } })
-                }
+                onLongPress={(event) => {
+                  const { pageX, pageY } = event.nativeEvent;
+                  // Anchor the menu under the pressed source instead of a fixed corner.
+                  setSourceContextAnchor({
+                    top: Math.min(pageY + 8, windowHeight - 200),
+                    left: Math.max(12, Math.min(pageX - 20, windowWidth - 208)),
+                  });
+                  setSourceContext(source);
+                }}
               >
                 <View
                   style={[
@@ -1260,7 +1323,9 @@ function RessApp() {
           );
         })}
       </ScrollView>
-    ) : (
+    ) : null;
+  const listHeader =
+    tab === "Saved" ? (
       <View
         style={[
           s.search,
@@ -1280,7 +1345,7 @@ function RessApp() {
           <Action icon={X} label="Clear search" onPress={() => setQuery("")} />
         ) : null}
       </View>
-    );
+    ) : null;
   // Render retained settings pages with their own page identity during push/pop.
   function renderPage(settingsPage: SettingsPage, tab: Tab) {
     return (
@@ -1333,19 +1398,8 @@ function RessApp() {
               </>
             ) : null}
           </View>
-          {notice ? (
-            <View style={s.notice}>
-              <Text accessibilityLiveRegion="polite" style={s.noticeText}>
-                {notice}
-              </Text>
-              <Action
-                icon={X}
-                label="Dismiss message"
-                onPress={() => setNotice("")}
-              />
-            </View>
-          ) : null}
-          <Scene scene={tab}>
+          {sourcePickerBar}
+          <Scene scene={`${tab}:${tab === "Feed" ? sourceFilter : ""}`} fade={tab === "Feed"}>
             {tab === "Feed" || tab === "Saved" ? (
               <FlatList
                 ref={feedListRef}
@@ -1360,7 +1414,7 @@ function RessApp() {
                   s.feedContent,
                   !visible.length && s.emptyContent,
                 ]}
-                ListHeaderComponent={listHeader}
+                ListHeaderComponent={listHeader ?? undefined}
                 refreshControl={
                   <RefreshControl
                     refreshing={busy}
@@ -1523,9 +1577,12 @@ function RessApp() {
                           [
                             { title: "Appearance", icon: PaletteIcon },
                             { title: "Text size", icon: Type },
-                            { title: "Reading", icon: BookOpen },
+                            { title: "Reading", icon: Glasses },
                           ],
-                          [{ title: "Import & Export", icon: FileText }],
+                          [
+                            { title: "Import & Export", icon: FileText },
+                            { title: "Widget", icon: LayoutGrid },
+                          ],
                           [{ title: "About", icon: Info }],
                         ] as const).map((group) => (
                           <View key={group[0].title} style={[s.aboutLinks, { marginBottom: 16 }]}>
@@ -1637,7 +1694,7 @@ function RessApp() {
                             <View style={{ flex: 1, gap: 4 }}><Text style={s.settingTitle}>Import OPML</Text><Text style={s.small}>Add feeds from another reader. Existing feeds are kept.</Text></View>
                             <ChevronRight size={18} color={c.muted} />
                           </SettingsRow>
-                          <SettingsRow accessibilityRole="button" accessibilityLabel="Export OPML" disabled={sourceBusy || !sources.length} style={{ borderBottomWidth: 0 }} onPress={() => void saveOpml()}>
+                          <SettingsRow accessibilityRole="button" accessibilityLabel="Export OPML" disabled={sourceBusy || !sources.length} style={{ borderBottomWidth: 0 }} onPress={() => setSheet("export")}>
                             <Upload size={21} color={c.ink} />
                             <View style={{ flex: 1, gap: 4 }}><Text style={s.settingTitle}>Export OPML</Text><Text style={s.small}>{sources.length} sources available to export.</Text></View>
                             <ChevronRight size={18} color={c.muted} />
@@ -1651,7 +1708,7 @@ function RessApp() {
                         <View accessibilityRole="radiogroup" accessibilityLabel="Default article mode" style={s.aboutLinks}>
                           {([
                             { value: "web", title: "Web page", icon: Globe },
-                            { value: "reading", title: "Reading mode", icon: BookOpen },
+                            { value: "reading", title: "Reading mode", icon: Glasses },
                           ] as const).map(({ value, title, icon: Icon }, index) => (
                             <SettingsRow
                               key={value}
@@ -1762,14 +1819,14 @@ function RessApp() {
                             void pinWidget()
                               .then((ok) => {
                                 if (!ok)
-                                  setNotice(
+                                  toast(
                                     widgetAvailable
                                       ? "Long-press your home screen, choose Widgets, then Ress."
                                       : "Widgets are available in the Android app.",
                                   );
                               })
                               .catch(() =>
-                                setNotice(
+                                toast(
                                   "Open your launcher’s widget picker and choose Ress.",
                                 ),
                               );
@@ -2110,7 +2167,7 @@ function RessApp() {
           </View>}
           <Text style={s.small}>Saved articles will stay in your library.</Text>
         </ConfirmDialog>
-        <ConfirmDialog visible={!!confirmation} title={confirmation?.title || ""} colors={c} cancelLabel={confirmation?.action ? "Cancel" : undefined} confirmLabel={confirmation?.action ? "Read all" : "OK"} onClose={() => setConfirmation(null)} onConfirm={() => { const action = confirmation?.action; setConfirmation(null); action?.(); }}>
+        <ConfirmDialog visible={!!confirmation} title={confirmation?.title || ""} colors={c} cancelLabel={confirmation?.action ? "Cancel" : undefined} confirmLabel={confirmation?.confirmLabel ?? "OK"} onClose={() => setConfirmation(null)} onConfirm={() => { const action = confirmation?.action; setConfirmation(null); action?.(); }}>
           <Text style={s.body}>{confirmation?.message}</Text>
         </ConfirmDialog>
         <MotionModal visible={sourceMenu} onClose={() => setSourceMenu(false)}>
@@ -2152,11 +2209,71 @@ function RessApp() {
           </Pressable>
         </MotionModal>
         <MotionModal
+          visible={!!sourceContext}
+          onClose={() => {
+            setSourceContext(null);
+            setSourceContextAnchor(null);
+          }}
+        >
+          <Pressable
+            style={s.menuBackdropPlain}
+            onPress={() => {
+              setSourceContext(null);
+              setSourceContextAnchor(null);
+            }}
+            accessibilityLabel="Close source actions"
+          >
+            <View
+              style={[
+                s.sourceMenu,
+                s.sourceContextMenu,
+                sourceContextAnchor
+                  ? { top: sourceContextAnchor.top, left: sourceContextAnchor.left }
+                  : null,
+              ]}
+            >
+              <Pressable
+                style={s.menuItem}
+                accessibilityRole="button"
+                onPress={() => {
+                  const source = sourceContext;
+                  setSourceContext(null);
+                  setSourceContextAnchor(null);
+                  if (!source) return;
+                  // The menu is the confirmation: act directly, no second dialog.
+                  markSourceRead(source.id);
+                  toast(
+                    source.id === "all"
+                      ? "All stories marked as read."
+                      : `${source.title} marked as read.`,
+                  );
+                }}
+              >
+                <BookOpen size={20} color={c.ink} />
+                <Text style={s.settingTitle}>Mark all as read</Text>
+              </Pressable>
+              {sourceContext?.id === "all" ? null : (
+                <Pressable
+                  style={s.menuItem}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    const source = sourceContext;
+                    setSourceContext(null);
+                    setSourceContextAnchor(null);
+                    if (source) editSource(source);
+                  }}
+                >
+                  <SlidersHorizontal size={20} color={c.ink} />
+                  <Text style={s.settingTitle}>Edit source</Text>
+                </Pressable>
+              )}
+            </View>
+          </Pressable>
+        </MotionModal>
+        <MotionModal
           drawer
           visible={!!sheet}
-          onClose={() => {
-            if (!sourceBusy) setSheet(null);
-          }}
+          onClose={closeSheet}
         >
           <KeyboardAvoidingView
             style={s.sheetOverlay}
@@ -2164,9 +2281,7 @@ function RessApp() {
           >
             <Pressable
               style={StyleSheet.absoluteFill}
-              onPress={() => {
-                if (!sourceBusy) setSheet(null);
-              }}
+              onPress={closeSheet}
               accessibilityLabel="Close sheet"
             />
             <SafeAreaView edges={["bottom"]} style={s.sheet}>
@@ -2179,13 +2294,17 @@ function RessApp() {
                       ? "Edit source"
                       : displayedSheet === "import"
                         ? "Import OPML"
-                        : "Widget source"}
+                        : displayedSheet === "export"
+                          ? "Export OPML"
+                          : displayedSheet === "importPreview"
+                            ? "Review OPML"
+                            : "Widget source"}
                 </Text>
                 <Action
                   icon={X}
                   label="Close sheet"
                   disabled={sourceBusy}
-                  onPress={() => setSheet(null)}
+                  onPress={closeSheet}
                 />
               </View>
               <ScrollView
@@ -2305,12 +2424,72 @@ function RessApp() {
                     />
                     {notice ? <Text style={s.small}>{notice}</Text> : null}
                   </View>
+                ) : displayedSheet === "export" ? (
+                  <View style={s.addForm}>
+                    <Text style={s.body}>
+                      {`${sources.length} source${sources.length === 1 ? "" : "s"} will be written to ${exportFilename}.`}
+                    </Text>
+                    <Text style={s.small}>
+                      {Platform.OS === "android"
+                        ? `Saved to ${opmlDestination(exportFilename)} on this device.`
+                        : Platform.OS === "web"
+                          ? `Downloaded as ${exportFilename}.`
+                          : "Shared through your device's share sheet."}
+                    </Text>
+                    <View style={s.previewList}>
+                      {sources.map((source, index) => (
+                        <View key={source.id} style={[s.previewRow, index === sources.length - 1 && s.previewRowLast]}>
+                          <Favicon uri={source.customIcon || source.icon || googleFaviconUrl(source.url)} title={source.title} size={28} />
+                          <View style={s.previewCopy}>
+                            <Text numberOfLines={1} style={s.settingTitle}>{source.title}</Text>
+                            <Text numberOfLines={1} style={s.small}>{source.url}</Text>
+                          </View>
+                          {source.category && source.category !== "Feeds" ? (
+                            <Text numberOfLines={1} style={s.previewBadge}>{source.category}</Text>
+                          ) : null}
+                        </View>
+                      ))}
+                    </View>
+                    <Button
+                      title="Continue"
+                      onPress={() => { setSheet(null); confirmExport(); }}
+                      disabled={sourceBusy || !sources.length}
+                    />
+                  </View>
+                ) : displayedSheet === "importPreview" ? (
+                  <View style={s.addForm}>
+                    <Text style={s.body}>
+                      {`${importFeeds.length} feed${importFeeds.length === 1 ? "" : "s"} found in this OPML file.`}
+                    </Text>
+                    <Text style={s.small}>
+                      {`${importSummary.added.length} new, ${importSummary.kept.length} already followed. Existing feeds and their settings are kept.`}
+                    </Text>
+                    <View style={s.previewList}>
+                      {importFeeds.map((source, index) => (
+                        <View key={source.url} style={[s.previewRow, index === importFeeds.length - 1 && s.previewRowLast]}>
+                          <Favicon uri={source.icon || googleFaviconUrl(source.url)} title={source.title} size={28} />
+                          <View style={s.previewCopy}>
+                            <Text numberOfLines={1} style={s.settingTitle}>{source.title}</Text>
+                            <Text numberOfLines={1} style={s.small}>{source.url}</Text>
+                          </View>
+                          <Text style={s.previewBadge}>
+                            {sources.some((current) => current.url === source.url) ? "Added" : "New"}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                    <Button
+                      title={sourceBusy ? "Importing…" : `Import ${importSummary.added.length} new feed${importSummary.added.length === 1 ? "" : "s"}`}
+                      onPress={() => void confirmImport()}
+                      disabled={sourceBusy || !importSummary.added.length}
+                    />
+                  </View>
                 ) : null}
               </ScrollView>
             </SafeAreaView>
           </KeyboardAvoidingView>
         </MotionModal>
-
+        <Toaster colors={c} dark={dark} />
       </SafeAreaView>
     </ThemeContext.Provider>
   );
@@ -2433,6 +2612,12 @@ function createStyles(c: Palette, dark: boolean) {
       flex: 1,
       minWidth: 0,
     },
+    sourcePickerBar: {
+      // The picker is a fixed strip: without this the horizontal scroll view
+      // stretches over the post list and swallows swipes meant for articles.
+      flexGrow: 0,
+      flexShrink: 0,
+    },
     sourcePicker: {
       gap: 12,
       paddingTop: 16,
@@ -2517,6 +2702,12 @@ function createStyles(c: Palette, dark: boolean) {
       paddingTop: 92,
       paddingRight: 20,
     },
+    // Context menus position themselves from the pressed element, so the
+    // backdrop must not add its own inset.
+    menuBackdropPlain: {
+      flex: 1,
+      backgroundColor: "transparent",
+    },
     sourceMenu: {
       backgroundColor: c.paper,
       borderRadius: 18,
@@ -2524,6 +2715,9 @@ function createStyles(c: Palette, dark: boolean) {
       boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
     },
     readerMenu: { position: "absolute", right: 16 },
+    sourceContextMenu: {
+      position: "absolute",
+    },
     readerMenuRule: {
       height: 1,
       backgroundColor: c.rule,
@@ -2569,6 +2763,31 @@ function createStyles(c: Palette, dark: boolean) {
     },
     sheetTitle: { fontFamily: f.display, color: c.ink, fontSize: 28 },
     sheetContent: { paddingHorizontal: 24, paddingBottom: 24 },
+    previewList: {
+      borderRadius: 16,
+      backgroundColor: c.surface,
+      overflow: "hidden",
+    },
+    previewRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      borderBottomColor: c.rule,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    previewRowLast: { borderBottomWidth: 0 },
+    previewCopy: { flex: 1, gap: 3, minWidth: 0 },
+    previewBadge: {
+      fontFamily: f.bold,
+      fontSize: 11,
+      color: c.muted,
+      backgroundColor: c.paper,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 10,
+    },
     safe: { flex: 1, backgroundColor: c.paper },
     shell: { flex: 1, width: "100%", maxWidth: 720, alignSelf: "center" },
     loading: {
@@ -2687,21 +2906,6 @@ function createStyles(c: Palette, dark: boolean) {
       borderRadius: 20,
     },
     navLabel: { fontFamily: f.body, color: c.ink, fontSize: 12 },
-    notice: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: c.yellowSoft,
-      paddingLeft: 20,
-      paddingRight: 8,
-      paddingVertical: 8,
-    },
-    noticeText: {
-      flex: 1,
-      fontFamily: f.body,
-      fontSize: 13,
-      lineHeight: 18,
-      color: c.ink,
-    },
     emptyContent: { flexGrow: 1 },
     empty: {
       flex: 1,
@@ -2760,6 +2964,7 @@ function createStyles(c: Palette, dark: boolean) {
       flexDirection: "row",
       gap: 14,
       alignItems: "center",
+      minHeight: SOURCE_ROW_HEIGHT,
       paddingVertical: 16,
       paddingHorizontal: 16,
       backgroundColor: c.paper,
