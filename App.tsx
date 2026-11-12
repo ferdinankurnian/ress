@@ -29,7 +29,6 @@ import {
   TextInput,
   View,
   useColorScheme,
-  useWindowDimensions,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import * as SystemUI from "expo-system-ui";
@@ -71,7 +70,8 @@ import ChevronRight from "lucide-react-native/icons/chevron-right";
 import Github from "./src/ui/GithubIcon";
 
 import { licenseText } from "./src/data/license";
-import { Scene, MotionModal, PopIn, SlidePage } from "./src/ui/Motion";
+import { Scene, MotionModal, SlidePage } from "./src/ui/Motion";
+import { Dropdown } from "./src/ui/Dropdown";
 import * as ImagePicker from "expo-image-picker";
 import Globe from "lucide-react-native/icons/globe";
 import FileText from "lucide-react-native/icons/file-text";
@@ -744,8 +744,7 @@ function RessApp() {
   }, [selected, readerMenu]);
   const [sourceMenu, setSourceMenu] = useState(false);
   const [sourceContext, setSourceContext] = useState<Source | null>(null);
-  const [sourceContextAnchor, setSourceContextAnchor] = useState<{ top: number; left: number } | null>(null);
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const [sourceContextAnchor, setSourceContextAnchor] = useState<{ pageX: number; pageY: number } | null>(null);
   const [confirmation, setConfirmation] = useState<{ title: string; message: string; confirmLabel?: string; action?: () => void } | null>(null);
   const [pendingImport, setPendingImport] = useState<Source[] | null>(null);
   const lastImport = useRef<Source[] | null>(null);
@@ -1269,11 +1268,8 @@ function RessApp() {
                 onPress={() => setSourceFilter(source.id)}
                 onLongPress={(event) => {
                   const { pageX, pageY } = event.nativeEvent;
-                  // Anchor the menu under the pressed source instead of a fixed corner.
-                  setSourceContextAnchor({
-                    top: Math.min(pageY + 8, windowHeight - 200),
-                    left: Math.max(12, Math.min(pageX - 20, windowWidth - 208)),
-                  });
+                  // Dropdown clamps this against the window and pivots from it.
+                  setSourceContextAnchor({ pageX, pageY });
                   setSourceContext(source);
                 }}
               >
@@ -2093,21 +2089,20 @@ function RessApp() {
                     )}
                   />
                 </View>
-                {readerMenu ? (
-                  <View style={StyleSheet.absoluteFill}>
-                    <Pressable
-                      style={StyleSheet.absoluteFill}
-                      accessibilityRole="button"
-                      accessibilityLabel="Close article options"
-                      onPress={() => setReaderMenu(false)}
-                    />
-                    <PopIn
-                      style={[
-                        s.sourceMenu,
-                        s.readerMenu,
-                        { top: readerBarHeight + 4 },
-                      ]}
-                    >
+                <Dropdown
+                  mode="inline"
+                  visible={readerMenu}
+                  onClose={() => setReaderMenu(false)}
+                  // Hangs off the reader toolbar's right edge.
+                  anchor={{
+                    kind: "bar",
+                    edge: "top",
+                    right: 16,
+                    barHeight: readerBarHeight,
+                  }}
+                  menuStyle={s.sourceMenu}
+                  accessibilityLabel="Close article options"
+                >
                       <Pressable
                         style={s.menuItem}
                         accessibilityRole="button"
@@ -2152,9 +2147,7 @@ function RessApp() {
                         <ExternalLink size={20} color={c.ink} />
                         <Text style={s.settingTitle}>Open in browser</Text>
                       </Pressable>
-                    </PopIn>
-                  </View>
-                ) : null}
+                    </Dropdown>
               </View>
             </SafeAreaView>
           ) : null}
@@ -2170,13 +2163,14 @@ function RessApp() {
         <ConfirmDialog visible={!!confirmation} title={confirmation?.title || ""} colors={c} cancelLabel={confirmation?.action ? "Cancel" : undefined} confirmLabel={confirmation?.confirmLabel ?? "OK"} onClose={() => setConfirmation(null)} onConfirm={() => { const action = confirmation?.action; setConfirmation(null); action?.(); }}>
           <Text style={s.body}>{confirmation?.message}</Text>
         </ConfirmDialog>
-        <MotionModal visible={sourceMenu} onClose={() => setSourceMenu(false)}>
-          <Pressable
-            style={s.menuBackdrop}
-            onPress={() => setSourceMenu(false)}
-            accessibilityLabel="Close source menu"
-          >
-            <View style={s.sourceMenu}>
+        <Dropdown
+          visible={sourceMenu}
+          onClose={() => setSourceMenu(false)}
+          // Pinned under the header's action buttons.
+          anchor={{ kind: "fixed", top: 92, right: 20 }}
+          menuStyle={s.sourceMenu}
+          accessibilityLabel="Close source menu"
+        >
               <Pressable
                 style={s.menuItem}
                 accessibilityRole="button"
@@ -2205,40 +2199,28 @@ function RessApp() {
                 <Download size={20} color={c.ink} />
                 <Text style={s.settingTitle}>Import OPML</Text>
               </Pressable>
-            </View>
-          </Pressable>
-        </MotionModal>
-        <MotionModal
+        </Dropdown>
+        <Dropdown
           visible={!!sourceContext}
-          onClose={() => {
-            setSourceContext(null);
-            setSourceContextAnchor(null);
-          }}
+          onClose={() => setSourceContext(null)}
+          anchor={
+            sourceContextAnchor
+              ? {
+                  kind: "pointer",
+                  pageX: sourceContextAnchor.pageX,
+                  pageY: sourceContextAnchor.pageY,
+                }
+              : null
+          }
+          menuStyle={s.sourceMenu}
+          accessibilityLabel="Close source actions"
         >
-          <Pressable
-            style={s.menuBackdropPlain}
-            onPress={() => {
-              setSourceContext(null);
-              setSourceContextAnchor(null);
-            }}
-            accessibilityLabel="Close source actions"
-          >
-            <View
-              style={[
-                s.sourceMenu,
-                s.sourceContextMenu,
-                sourceContextAnchor
-                  ? { top: sourceContextAnchor.top, left: sourceContextAnchor.left }
-                  : null,
-              ]}
-            >
               <Pressable
                 style={s.menuItem}
                 accessibilityRole="button"
                 onPress={() => {
                   const source = sourceContext;
                   setSourceContext(null);
-                  setSourceContextAnchor(null);
                   if (!source) return;
                   // The menu is the confirmation: act directly, no second dialog.
                   markSourceRead(source.id);
@@ -2259,7 +2241,6 @@ function RessApp() {
                   onPress={() => {
                     const source = sourceContext;
                     setSourceContext(null);
-                    setSourceContextAnchor(null);
                     if (source) editSource(source);
                   }}
                 >
@@ -2267,9 +2248,7 @@ function RessApp() {
                   <Text style={s.settingTitle}>Edit source</Text>
                 </Pressable>
               )}
-            </View>
-          </Pressable>
-        </MotionModal>
+        </Dropdown>
         <MotionModal
           drawer
           visible={!!sheet}
@@ -2695,28 +2674,13 @@ function createStyles(c: Palette, dark: boolean) {
       marginTop: 4,
       paddingBottom: 12,
     },
-    menuBackdrop: {
-      flex: 1,
-      backgroundColor: "transparent",
-      alignItems: "flex-end",
-      paddingTop: 92,
-      paddingRight: 20,
-    },
-    // Context menus position themselves from the pressed element, so the
-    // backdrop must not add its own inset.
-    menuBackdropPlain: {
-      flex: 1,
-      backgroundColor: "transparent",
-    },
+    // Menu box shared by every dropdown. Position and pivot come from
+    // src/ui/Dropdown.tsx, which measures against the window.
     sourceMenu: {
       backgroundColor: c.paper,
       borderRadius: 18,
       padding: 8,
       boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
-    },
-    readerMenu: { position: "absolute", right: 16 },
-    sourceContextMenu: {
-      position: "absolute",
     },
     readerMenuRule: {
       height: 1,

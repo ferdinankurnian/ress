@@ -4,10 +4,13 @@ export function Scene({
   children,
   scene,
   animateOnMount = false,
+  fade = false,
 }: {
   children: React.ReactNode;
   scene: string;
   animateOnMount?: boolean;
+  /** Fade in as well as slide up, for content that changes within a tab. */
+  fade?: boolean;
 }) {
   const progress = useRef(new Animated.Value(animateOnMount ? 0 : 1)).current;
   const first = useRef(true);
@@ -34,6 +37,7 @@ export function Scene({
       collapsable={false}
       style={{
         flex: 1,
+        opacity: fade ? progress : 1,
         transform: [
           {
             translateY: progress.interpolate({
@@ -53,13 +57,26 @@ export function MotionModal({
   onClose,
   children,
   drawer = false,
+  transformOrigin = "top right",
+  onClosed,
 }: {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
   drawer?: boolean;
+  /**
+   * Scale pivot for the pop animation. Context menus pass the pressed
+   * element's position so the menu grows out of it instead of the screen
+   * corner.
+   */
+  transformOrigin?: string;
+  /** Runs after the close animation finishes, for state the surface needs
+   * while it is still animating out (such as a menu's anchor). */
+  onClosed?: () => void;
 }) {
   const [mounted, setMounted] = useState(visible);
+  const closed = useRef(onClosed);
+  closed.current = onClosed;
   const progress = useRef(new Animated.Value(0)).current;
   const drag = useRef(new Animated.Value(0)).current;
   const closing = useRef(onClose);
@@ -75,7 +92,10 @@ export function MotionModal({
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(({ finished }) => {
-      if (finished && !visible) setMounted(false);
+      if (finished && !visible) {
+        setMounted(false);
+        closed.current?.();
+      }
     });
   }, [visible]);
   const pan = useRef(
@@ -158,7 +178,7 @@ export function MotionModal({
                     }),
                   },
                 ],
-            transformOrigin: "top right",
+            transformOrigin,
           }}
         >
           {children}
@@ -167,51 +187,6 @@ export function MotionModal({
     </Modal>
   );
 }
-export function PopIn({
-  children,
-  style,
-}: {
-  children: React.ReactNode;
-  style?: import("react-native").StyleProp<import("react-native").ViewStyle>;
-}) {
-  const progress = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.timing(progress, {
-      toValue: 1,
-      duration: 280,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, []);
-  return (
-    <Animated.View
-      style={[
-        style,
-        {
-          opacity: progress,
-          transformOrigin: "top right",
-          transform: [
-            {
-              scale: progress.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0.85, 1],
-              }),
-            },
-            {
-              translateY: progress.interpolate({
-                inputRange: [0, 1],
-                outputRange: [-12, 0],
-              }),
-            },
-          ],
-        },
-      ]}
-    >
-      {children}
-    </Animated.View>
-  );
-}
-
 /** Keep a pushed page mounted until its return animation completes. */
 export function SlidePage({ visible, backgroundColor, children, testID }: {
   visible: boolean;
