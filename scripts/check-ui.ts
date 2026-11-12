@@ -257,6 +257,23 @@ await page.screenshot({ path: `${output}/reading-settings.png` });
 await page.getByRole("button", { name: "Back to Settings", exact: true }).evaluate((el: HTMLElement) => el.click());
 await expectSlideOut("settings-page");
 await expect(page.getByRole("tab", { name: "Settings", exact: true })).toBeVisible();
+// Export shows which sources are going out and where the file lands before confirming.
+await page.getByRole("button", { name: "Open Import & Export", exact: true }).click();
+await page.getByRole("button", { name: "Export OPML", exact: true }).click();
+await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeVisible();
+await page.getByRole("button", { name: "Continue", exact: true }).click();
+await expect(page.getByText("Export subscriptions?", { exact: true })).toBeVisible();
+await page.screenshot({ path: `${output}/export-confirm.png`, animations: "disabled" });
+await page.getByRole("button", { name: "Export", exact: true }).click();
+// Notifications land as a top-center toast instead of an inline bar.
+const toastText = page.getByText("OPML downloaded as", { exact: false });
+await expect(toastText).toBeVisible();
+const toastBox = (await toastText.boundingBox())!;
+expect(toastBox.y).toBeLessThan(120);
+expect(Math.abs(toastBox.x + toastBox.width / 2 - 195)).toBeLessThan(40);
+await page.screenshot({ path: `${output}/toast.png`, animations: "disabled" });
+await expect(toastText).toBeHidden({ timeout: 8000 });
+await page.getByRole("button", { name: "Back to Settings", exact: true }).click();
 await page
   .getByRole("button", { name: "Open Text size", exact: true })
   .click();
@@ -472,6 +489,8 @@ await writeFile(
         "saved search and persistence",
         "page headers",
         "settings",
+        "export source preview and confirmation",
+        "top-center toast notifications",
         "reader and settings horizontal push/pop transitions",
         "nested license navigation",
         "tabs hidden in detail pages and restored on back",

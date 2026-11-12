@@ -35,6 +35,10 @@ export function RessWidget({
   // Keep the title legible and reserve the full refresh hit area at every width.
   const statusWidth = Math.max(0, Math.min(96, contentWidth - 120));
   const visibleArticles = articles.slice(0, 10);
+  // The native renderer reads this tree positionally: child 0 is the header,
+  // child 1 is the article list. Keep that order. The native content layout
+  // overlays the header on a full-height list with a gradient scrim behind it,
+  // so rows scroll underneath; this JSX is the data source, not the layout.
   return (
     <FlexWidget
       style={{

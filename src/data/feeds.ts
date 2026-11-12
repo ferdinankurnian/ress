@@ -108,6 +108,32 @@ export function parseOpml(text: string): Source[] {
   if (!sources.length) throw new Error("No feed URLs were found in this OPML.");
   return sources;
 }
+/** Stable, dated filename for an OPML export. */
+export function opmlFilename(date = new Date()): string {
+  return `ress-${date.toISOString().slice(0, 10)}.opml`;
+}
+
+/** Split an OPML import into feeds that are new and feeds already followed. */
+export function summarizeImport(imported: Source[], current: Source[]) {
+  const existing = new Set(current.map((source) => source.url));
+  return {
+    added: imported.filter((source) => !existing.has(source.url)),
+    kept: imported.filter((source) => existing.has(source.url)),
+  };
+}
+
+/** Keep existing subscriptions (names, icons, ids) when importing an OPML file. */
+export function mergeImportedSources(
+  imported: Source[],
+  current: Source[],
+): Source[] {
+  const byUrl = new Map<string, Source>();
+  // Later entries win: a followed feed keeps its own metadata, while new feeds
+  // take their place at the front of the list.
+  for (const source of [...imported, ...current]) byUrl.set(source.url, source);
+  return [...byUrl.values()];
+}
+
 export function isGitHubRelease(url: string): boolean {
   try {
     const parsed = new URL(url);
