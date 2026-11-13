@@ -14,11 +14,14 @@ import { resolveDropdownAnchor, type DropdownAnchor, type Resolved } from "./dro
  * One dropdown surface for the whole app: a dismiss backdrop, a menu box the
  * caller anchors, and the shared pop animation.
  *
+ * Works anywhere. Pass a trigger-relative `anchor` and the box scales from that
+ * point on both open and close. Width is always content-sized.
+ *
  * `mode` picks how it mounts:
- * - `modal` covers the screen in a native modal and scales in. Use it for
- *   context menus and header menus.
- * - `inline` stays in the caller's tree and fades out in place. Use it inside
- *   a surface that already covers the screen, such as the reader.
+ * - `modal` covers the screen in a native modal. Use for context menus and
+ *   header menus that need to escape their parent stacking context.
+ * - `inline` stays in the caller's tree. Use inside a surface that already
+ *   covers the screen (reader, sheets, etc).
  */
 export function Dropdown({
   visible,
@@ -78,6 +81,85 @@ export function Dropdown({
   );
 }
 
+const OPEN_MS = 180;
+const CLOSE_MS = 140;
+
+function useDropdownAnimation(visible: boolean) {
+  const [mounted, setMounted] = useState(visible);
+  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+
+  useEffect(() => {
+    if (visible) setMounted(true);
+    Animated.timing(progress, {
+      toValue: visible ? 1 : 0,
+      duration: visible ? OPEN_MS : CLOSE_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+      isInteraction: false,
+    }).start(({ finished }) => {
+      if (finished && !visible) setMounted(false);
+    });
+  }, [visible, progress]);
+
+  return { mounted, progress };
+}
+
+function useHeldAnchor(resolved: Resolved | null) {
+  // Hold the last anchor through the close animation so the box does not jump
+  // to a default position while it is still fading out.
+  const held = useRef<Resolved | null>(null);
+  if (resolved) held.current = resolved;
+  return resolved ?? held.current;
+}
+
+function useHeldContent(content: unknown) {
+  const held = useRef<unknown>(content);
+  if (content !== undefined) held.current = content;
+  return held.current;
+}
+
+function MenuBox({
+  progress,
+  shown,
+  menuStyle,
+  children,
+}: {
+  progress: Animated.Value;
+  shown: Resolved;
+  menuStyle?: ViewStyle;
+  children: React.ReactNode;
+}) {
+  return (
+    <Animated.View
+      style={[
+        menuStyle,
+        {
+          position: "absolute",
+          // Content dictates width. Without this the full-screen overlay makes
+          // the box stretch edge-to-edge.
+          alignSelf: "flex-start",
+          opacity: progress,
+        },
+        shown.style,
+        {
+          transform: [
+            {
+              scale: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.92, 1],
+              }),
+            },
+          ],
+          // Relative to the menu box — opens/closes from the trigger.
+          transformOrigin: shown.transformOrigin,
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
 /**
  * Full-screen dismiss target with the menu box animating on its own.
  *
@@ -102,29 +184,12 @@ function ModalDropdown({
   content?: unknown;
   render: (content: unknown) => React.ReactNode;
 }) {
-  const [mounted, setMounted] = useState(visible);
-  const progress = useRef(new Animated.Value(0)).current;
-  // Hold the last anchor through the close animation so the box does not jump
-  // to a default position while it is still fading out.
-  const held = useRef<Resolved | null>(null);
-  if (resolved) held.current = resolved;
-  const shown = resolved ?? held.current;
-  // Same reason as the anchor: the item list must not change mid-fade.
-  const heldContent = useRef<unknown>(content);
-  if (content !== undefined) heldContent.current = content;
-  useEffect(() => {
-    if (visible) setMounted(true);
-    Animated.timing(progress, {
-      toValue: visible ? 1 : 0,
-      duration: visible ? 180 : 140,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-      isInteraction: false,
-    }).start(({ finished }) => {
-      if (finished && !visible) setMounted(false);
-    });
-  }, [visible, progress]);
+  const { mounted, progress } = useDropdownAnimation(visible);
+  const shown = useHeldAnchor(resolved);
+  const heldContent = useHeldContent(content);
+
   if (!mounted || !shown) return null;
+
   return (
     <Modal transparent visible animationType="none" onRequestClose={onClose}>
       <Pressable
@@ -132,35 +197,15 @@ function ModalDropdown({
         onPress={onClose}
         accessibilityLabel={accessibilityLabel}
       >
-        {/* The animated element is the box itself, shrink-wrapped at the
-            anchor, so scaling cannot drag it off position. The backdrop
-            above stays static to catch dismissal taps. */}
-        <Animated.View
-          style={[
-            menuStyle,
-            { position: "absolute", opacity: progress },
-            shown.style,
-            {
-              transform: [
-                {
-                  scale: progress.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.9, 1],
-                  }),
-                },
-              ],
-              transformOrigin: shown.transformOrigin,
-            },
-          ]}
-        >
-          {render(heldContent.current)}
-        </Animated.View>
+        <MenuBox progress={progress} shown={shown} menuStyle={menuStyle}>
+          {render(heldContent)}
+        </MenuBox>
       </Pressable>
     </Modal>
   );
 }
 
-/** Keeps the menu mounted for the length of its exit fade. */
+/** Same animation as modal, stays in the caller's tree. */
 function InlineDropdown({
   visible,
   onClose,
@@ -178,23 +223,12 @@ function InlineDropdown({
   content?: unknown;
   render: (content: unknown) => React.ReactNode;
 }) {
-  const [mounted, setMounted] = useState(visible);
-  // The anchor must survive the fade-out, or the box jumps to a default spot.
-  const held = useRef<Resolved | null>(null);
-  if (resolved) held.current = resolved;
-  const shown = resolved ?? held.current;
-  const heldContent = useRef<unknown>(content);
-  if (content !== undefined) heldContent.current = content;
-  useEffect(() => {
-    if (visible) {
-      setMounted(true);
-      return;
-    }
-    // Matches the fade duration so the menu isn't yanked mid-animation.
-    const timer = setTimeout(() => setMounted(false), 200);
-    return () => clearTimeout(timer);
-  }, [visible]);
+  const { mounted, progress } = useDropdownAnimation(visible);
+  const shown = useHeldAnchor(resolved);
+  const heldContent = useHeldContent(content);
+
   if (!mounted || !shown) return null;
+
   return (
     <View style={{ position: "absolute", inset: 0 }} pointerEvents="box-none">
       <Pressable
@@ -203,7 +237,9 @@ function InlineDropdown({
         accessibilityLabel={accessibilityLabel}
         onPress={onClose}
       />
-      <View style={[menuStyle, shown.style]}>{render(heldContent.current)}</View>
+      <MenuBox progress={progress} shown={shown} menuStyle={menuStyle}>
+        {render(heldContent)}
+      </MenuBox>
     </View>
   );
 }

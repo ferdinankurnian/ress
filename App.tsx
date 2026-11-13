@@ -2,6 +2,7 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -29,6 +30,7 @@ import {
   TextInput,
   View,
   useColorScheme,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import * as SystemUI from "expo-system-ui";
@@ -70,7 +72,7 @@ import ChevronRight from "lucide-react-native/icons/chevron-right";
 import Github from "./src/ui/GithubIcon";
 
 import { licenseText } from "./src/data/license";
-import { Scene, MotionModal, SlidePage } from "./src/ui/Motion";
+import { Scene, MotionModal, SlidePage, slideUnderlayX } from "./src/ui/Motion";
 import { Dropdown } from "./src/ui/Dropdown";
 import * as ImagePicker from "expo-image-picker";
 import Globe from "lucide-react-native/icons/globe";
@@ -642,7 +644,16 @@ function RessApp() {
   const lastSettingsPage = useRef<SettingsPage>("Appearance");
   if (settingsPage !== "main") lastSettingsPage.current = settingsPage === "License" ? "About" : settingsPage;
   const [scrolled, setScrolled] = useState(false);
-  const pickerOffset = useRef(new Animated.Value(0)).current;
+  // Width of the widget preview, so its height can follow the 720x888 source.
+  const [widgetThumbWidth, setWidgetThumbWidth] = useState(0);
+  const { width: windowWidth } = useWindowDimensions();
+  // Shared push progress so the page underneath drifts left with the sheet.
+  const readerSlide = useRef(new Animated.Value(0)).current;
+  const settingsSlide = useRef(new Animated.Value(0)).current;
+  const licenseSlide = useRef(new Animated.Value(0)).current;
+  // Posts-only motion when the source filter changes. The picker lives in the
+  // list header and scrolls with content — it must not take part in this.
+  const postsMotion = useRef(new Animated.Value(1)).current;
   // Chip frames for the source context menu, measured when it opens.
   const chipRefs = useRef(
     new Map<string, React.ComponentRef<typeof View>>(),
@@ -749,7 +760,11 @@ function RessApp() {
   }, [selected, readerMenu]);
   const [sourceMenu, setSourceMenu] = useState(false);
   const [sourceContext, setSourceContext] = useState<Source | null>(null);
-  const [sourceContextAnchor, setSourceContextAnchor] = useState<{ pageX: number; pageY: number } | null>(null);
+  const [sourceContextAnchor, setSourceContextAnchor] = useState<{ pageX: number; pageY: number; align: "center"; width: number } | null>(null);
+  // The "All" chip is not a source, so its menu is its own state. Keeping it
+  // separate means closing it can never render a source menu mid-fade.
+  const [allMenu, setAllMenu] = useState(false);
+  const [allMenuAnchor, setAllMenuAnchor] = useState<{ pageX: number; pageY: number; align: "center"; width: number } | null>(null);
   const [confirmation, setConfirmation] = useState<{ title: string; message: string; confirmLabel?: string; action?: () => void } | null>(null);
   const [pendingImport, setPendingImport] = useState<Source[] | null>(null);
   const lastImport = useRef<Source[] | null>(null);
@@ -933,6 +948,18 @@ function RessApp() {
     // A new source starts reading from its newest story, not the old offset.
     if (tab === "Feed") feedListRef.current?.scrollToOffset({ offset: 0, animated: false });
   }, [sourceFilter, tab]);
+  useLayoutEffect(() => {
+    if (tab !== "Feed") return;
+    postsMotion.stopAnimation();
+    postsMotion.setValue(0);
+    Animated.timing(postsMotion, {
+      toValue: 1,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+      isInteraction: false,
+    }).start();
+  }, [sourceFilter, tab, postsMotion]);
   async function persist<T>(key: string, value: T) {
     try {
       await put(key, value);
@@ -1244,8 +1271,8 @@ function RessApp() {
         (sourceFilter === "all" || a.sourceId === sourceFilter),
   );
   if ((!fonts && !fontError) || !ready) return null;
-  // The picker stays pinned above the scene so switching sources animates only
-  // the posts view below it.
+  // Source chips live in the list header so they scroll with the posts.
+  // Filter changes animate posts only via postsMotion — not this bar.
   const sourcePickerBar =
     tab === "Feed" ? (
       <ScrollView
@@ -1263,6 +1290,26 @@ function RessApp() {
               activeIds.has(a.sourceId) &&
               (source.id === "all" || a.sourceId === source.id),
           ).length;
+          const isAll = source.id === "all";
+          const openMenu = (anchor: {
+            pageX: number;
+            pageY: number;
+            width: number;
+          }) => {
+            if (isAll) {
+              setAllMenuAnchor({ ...anchor, align: "center" });
+              setAllMenu(true);
+              return;
+            }
+            setSourceContextAnchor({ ...anchor, align: "center" });
+            setSourceContext(source);
+          };
+          const closeMenu = () => {
+            if (isAll) setAllMenu(false);
+            else setSourceContext(null);
+          };
+          // Width of the menu box, so the anchor can clamp against the viewport.
+          const chipMenuWidth = 232;
           return (
             <View
               key={source.id}
@@ -1282,13 +1329,13 @@ function RessApp() {
                 onPress={() => setSourceFilter(source.id)}
                 onLongPress={() => {
                   const chip = chipRefs.current.get(source.id);
-                  chip?.measureInWindow((x, y, width) => {
-                    setSourceContextAnchor({
-                      // Center of the chip's icon ring, top of the box.
+                  chip?.measureInWindow((x, y, width, height) => {
+                    openMenu({
+                      // Center of the chip, below it — menu hangs under the item.
                       pageX: x + width / 2,
-                      pageY: y,
+                      pageY: y + height,
+                      width: chipMenuWidth,
                     });
-                    setSourceContext(source);
                   });
                 }}
               >
@@ -1334,6 +1381,82 @@ function RessApp() {
               {source.id === "all" && sources.length ? (
                 <View style={s.sourceDivider} />
               ) : null}
+              <Dropdown
+                visible={isAll ? allMenu : sourceContext?.id === source.id}
+                onClose={closeMenu}
+                anchor={
+                  isAll
+                    ? allMenuAnchor
+                      ? {
+                          kind: "pointer",
+                          pageX: allMenuAnchor.pageX,
+                          pageY: allMenuAnchor.pageY,
+                          align: "center",
+                          width: allMenuAnchor.width,
+                        }
+                      : null
+                    : sourceContextAnchor
+                      ? {
+                          kind: "pointer",
+                          pageX: sourceContextAnchor.pageX,
+                          pageY: sourceContextAnchor.pageY,
+                          align: "center",
+                          width: sourceContextAnchor.width,
+                        }
+                      : null
+                }
+                menuStyle={s.sourceMenu}
+                accessibilityLabel={
+                  isAll ? "Close all sources actions" : "Close source actions"
+                }
+                // Render from the last value while the menu animates out.
+                content={isAll ? true : sourceContext}
+              >
+                {(held) =>
+                  isAll ? (
+                    <Pressable
+                      style={s.menuItem}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        setAllMenu(false);
+                        markSourceRead("all");
+                        toast("All stories marked as read.");
+                      }}
+                    >
+                      <BookOpen size={20} color={c.ink} />
+                      <Text style={s.settingTitle}>Mark all as read</Text>
+                    </Pressable>
+                  ) : (
+                    <>
+                      <Pressable
+                        style={s.menuItem}
+                        accessibilityRole="button"
+                        onPress={() => {
+                          setSourceContext(null);
+                          if (!held) return;
+                          // The menu is the confirmation: act directly, no dialog.
+                          markSourceRead(held.id);
+                          toast(`${held.title} marked as read.`);
+                        }}
+                      >
+                        <BookOpen size={20} color={c.ink} />
+                        <Text style={s.settingTitle}>Mark all as read</Text>
+                      </Pressable>
+                      <Pressable
+                        style={s.menuItem}
+                        accessibilityRole="button"
+                        onPress={() => {
+                          setSourceContext(null);
+                          if (held) editSource(held);
+                        }}
+                      >
+                        <SlidersHorizontal size={20} color={c.ink} />
+                        <Text style={s.settingTitle}>Edit source</Text>
+                      </Pressable>
+                    </>
+                  )
+                }
+              </Dropdown>
             </View>
           );
         })}
@@ -1341,8 +1464,6 @@ function RessApp() {
     ) : null;
   const listHeader = (
     <>
-      {/* The source picker scrolls with the posts. Pinning it above the list
-          left a fixed strip that stayed put while articles moved under it. */}
       {tab === "Feed" ? sourcePickerBar : null}
       {tab === "Saved" ? (
         <View
@@ -1419,28 +1540,13 @@ function RessApp() {
               </>
             ) : null}
           </View>
-          {tab === "Feed" ? (
-            /* Outside the Scene on purpose: switching sources must not fade the
-               picker up along with the posts. It moves by following the list's
-               scroll offset instead. */
-            <Animated.View
-              style={{ transform: [{ translateY: pickerOffset }] }}
-              pointerEvents="box-none"
-            >
-              {sourcePickerBar}
-            </Animated.View>
-          ) : null}
-          <Scene scene={`${tab}:${tab === "Feed" ? sourceFilter : ""}`} fade={tab === "Feed"}>
+          <Scene scene={tab}>
             {tab === "Feed" || tab === "Saved" ? (
               <FlatList
                 ref={feedListRef}
                 key={tab}
                 onScroll={(event) => {
-                  const y = event.nativeEvent.contentOffset.y;
-                  setScrolled(y > 1);
-                  // Move the picker with the posts so it scrolls away without
-                  // being part of the fading Scene.
-                  pickerOffset.setValue(Math.min(0, -y));
+                  setScrolled(event.nativeEvent.contentOffset.y > 1);
                 }}
                 scrollEventThrottle={16}
                 data={visible}
@@ -1449,9 +1555,7 @@ function RessApp() {
                   s.feedContent,
                   !visible.length && s.emptyContent,
                 ]}
-                ListHeaderComponent={
-                  tab === "Saved" ? listHeader : undefined
-                }
+                ListHeaderComponent={listHeader}
                 refreshControl={
                   <RefreshControl
                     refreshing={busy}
@@ -1462,7 +1566,23 @@ function RessApp() {
                   />
                 }
                 renderItem={({ item, index }) => (
-                  <View style={[s.article, index === 0 && s.leadArticle]}>
+                  <Animated.View
+                    style={[
+                      s.article,
+                      index === 0 && s.leadArticle,
+                      tab === "Feed" && {
+                        opacity: postsMotion,
+                        transform: [
+                          {
+                            translateY: postsMotion.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [20, 0],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
+                  >
                     <ArticlePressable
                       label={`Read ${item.title}`}
                       onPress={() => openArticle(item)}
@@ -1520,10 +1640,25 @@ function RessApp() {
                       />
                     </View>
                     </ArticlePressable>
-                  </View>
+                  </Animated.View>
                 )}
                 ListEmptyComponent={
-                  <View style={s.empty}>
+                  <Animated.View
+                    style={[
+                      s.empty,
+                      tab === "Feed" && {
+                        opacity: postsMotion,
+                        transform: [
+                          {
+                            translateY: postsMotion.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [20, 0],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
+                  >
                     {busy ? (
                       <>
                         <ActivityIndicator color={c.ink} />
@@ -1565,7 +1700,7 @@ function RessApp() {
                         ) : null}
                       </>
                     )}
-                  </View>
+                  </Animated.View>
                 }
               />
             ) : tab === "Sources" && sourceOrder ? (
@@ -1721,10 +1856,6 @@ function RessApp() {
                       </>
                     ) : settingsPage === "Import & Export" ? (
                       <>
-                        <Text style={s.helper}>
-                          Move your feeds between Ress and other readers with OPML.
-                          Feed titles and categories are included; saved articles and reading history are not.
-                        </Text>
                         <View style={s.aboutLinks}>
                           <SettingsRow accessibilityRole="button" accessibilityLabel="Import OPML" disabled={sourceBusy} onPress={() => void importOpml()}>
                             <Download size={21} color={c.ink} />
@@ -1737,6 +1868,10 @@ function RessApp() {
                             <ChevronRight size={18} color={c.muted} />
                           </SettingsRow>
                         </View>
+                        <Text style={s.helper}>
+                          Move your feeds between Ress and other readers with OPML.
+                          Feed titles and categories are included; custom icons, saved articles, and reading history are not.
+                        </Text>
                         {sourceBusy && <ActivityIndicator color={c.ink} />}
                       </>
                     ) : settingsPage === "Reading" ? (
@@ -1845,30 +1980,29 @@ function RessApp() {
                       </>
                     ) : settingsPage === "Widget" ? (
                       <>
-                        <Text style={s.helper}>
+                        <Image
+                          source={require("./assets/widget-thumbnail.png")}
+                          style={[
+                            s.widgetThumbnail,
+                            widgetThumbWidth
+                              ? {
+                                  height: Math.round(
+                                    widgetThumbWidth * (888 / 720),
+                                  ),
+                                }
+                              : null,
+                          ]}
+                          onLayout={(event) =>
+                            setWidgetThumbWidth(event.nativeEvent.layout.width)
+                          }
+                          resizeMode="contain"
+                          accessibilityIgnoresInvertColors
+                        />
+                        <Text style={[s.helper, s.widgetHelper]}>
                           Add a widget, then long-press it on your home screen
                           and choose Settings to change its source or unread
                           filter. Each widget has its own settings.
                         </Text>
-                        <Button
-                          title="Add widget to home screen"
-                          onPress={() => {
-                            void pinWidget()
-                              .then((ok) => {
-                                if (!ok)
-                                  toast(
-                                    widgetAvailable
-                                      ? "Long-press your home screen, choose Widgets, then Ress."
-                                      : "Widgets are available in the Android app.",
-                                  );
-                              })
-                              .catch(() =>
-                                toast(
-                                  "Open your launcher’s widget picker and choose Ress.",
-                                ),
-                              );
-                          }}
-                        />
                       </>
                     ) : settingsPage === "License" ? (
                       <Text selectable style={s.body}>{licenseText}</Text>
@@ -1881,7 +2015,7 @@ function RessApp() {
                           />
                           <Text style={s.aboutTitle}>Ress</Text>
                           <Text style={[s.small, { marginTop: -7 }]}>Ferdinan Iydheko</Text>
-                          <Text style={s.versionBadge}>1.0.0</Text>
+                          <Text style={s.versionBadge}>1.1.0</Text>
                         </View>
                         <View style={s.aboutLinks}>
                           <SettingsRow
@@ -1937,6 +2071,29 @@ function RessApp() {
               </ScrollView>
             )}
           </Scene>
+          {tab === "Settings" && settingsPage === "Widget" ? (
+            <View style={s.widgetFooter}>
+              <Button
+                title="Add widget to home screen"
+                onPress={() => {
+                  void pinWidget()
+                    .then((ok) => {
+                      if (!ok)
+                        toast(
+                          widgetAvailable
+                            ? "Long-press your home screen, choose Widgets, then Ress."
+                            : "Widgets are available in the Android app.",
+                        );
+                    })
+                    .catch(() =>
+                      toast(
+                        "Open your launcher’s widget picker and choose Ress.",
+                      ),
+                    );
+                }}
+              />
+            </View>
+          ) : null}
           {settingsPage === "main" && <SafeAreaView edges={["bottom"]} style={s.navSafe}>
             <View style={s.nav}>
               {tabs.map(({ name, icon: Icon }) => (
@@ -1991,25 +2148,53 @@ function RessApp() {
       <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
         <StatusBar style={dark ? "light" : "dark"} />
         <View style={s.shell}>
-          <View
-            style={{ flex: 1 }}
+          <Animated.View
+            style={{
+              flex: 1,
+              // Drift left under both settings push and reader push (iOS stack).
+              transform: [
+                {
+                  translateX: Animated.add(
+                    slideUnderlayX(settingsSlide, windowWidth),
+                    slideUnderlayX(readerSlide, windowWidth),
+                  ),
+                },
+              ],
+            }}
             aria-hidden={!!selected || (tab === "Settings" && settingsPage !== "main")}
             accessibilityElementsHidden={!!selected || (tab === "Settings" && settingsPage !== "main")}
             importantForAccessibility={selected || (tab === "Settings" && settingsPage !== "main") ? "no-hide-descendants" : "auto"}
             pointerEvents={selected || (tab === "Settings" && settingsPage !== "main") ? "none" : "auto"}
           >
             {renderPage("main", tab)}
-          </View>
-          <SlidePage testID="settings-page" visible={tab === "Settings" && settingsPage !== "main"} backgroundColor={c.paper}>
-            <SafeAreaView edges={["bottom"]} style={{ flex: 1 }}
-              aria-hidden={!!selected || settingsPage === "License"}
-              accessibilityElementsHidden={!!selected || settingsPage === "License"}
-              importantForAccessibility={selected || settingsPage === "License" ? "no-hide-descendants" : "auto"}
-              pointerEvents={selected || settingsPage === "License" ? "none" : "auto"}>
-              {renderPage(lastSettingsPage.current, "Settings")}
-            </SafeAreaView>
+          </Animated.View>
+          <SlidePage
+            testID="settings-page"
+            visible={tab === "Settings" && settingsPage !== "main"}
+            backgroundColor={c.paper}
+            progress={settingsSlide}
+          >
+            <Animated.View
+              style={{
+                flex: 1,
+                transform: [{ translateX: slideUnderlayX(licenseSlide, windowWidth) }],
+              }}
+            >
+              <SafeAreaView edges={["bottom"]} style={{ flex: 1 }}
+                aria-hidden={!!selected || settingsPage === "License"}
+                accessibilityElementsHidden={!!selected || settingsPage === "License"}
+                importantForAccessibility={selected || settingsPage === "License" ? "no-hide-descendants" : "auto"}
+                pointerEvents={selected || settingsPage === "License" ? "none" : "auto"}>
+                {renderPage(lastSettingsPage.current, "Settings")}
+              </SafeAreaView>
+            </Animated.View>
           </SlidePage>
-          <SlidePage testID="license-page" visible={tab === "Settings" && settingsPage === "License"} backgroundColor={c.paper}>
+          <SlidePage
+            testID="license-page"
+            visible={tab === "Settings" && settingsPage === "License"}
+            backgroundColor={c.paper}
+            progress={licenseSlide}
+          >
             <SafeAreaView edges={["bottom"]} style={{ flex: 1 }}
               aria-hidden={!!selected}
               accessibilityElementsHidden={!!selected}
@@ -2018,7 +2203,12 @@ function RessApp() {
               {renderPage("License", "Settings")}
             </SafeAreaView>
           </SlidePage>
-          <SlidePage testID="reader-page" visible={!!selected} backgroundColor={c.paper}>
+          <SlidePage
+            testID="reader-page"
+            visible={!!selected}
+            backgroundColor={c.paper}
+            progress={readerSlide}
+          >
           {readerArticle ? (
             <SafeAreaView
               edges={["bottom"]}
@@ -2240,61 +2430,6 @@ function RessApp() {
                 <Download size={20} color={c.ink} />
                 <Text style={s.settingTitle}>Import OPML</Text>
               </Pressable>
-        </Dropdown>
-        <Dropdown
-          visible={!!sourceContext}
-          onClose={() => setSourceContext(null)}
-          anchor={
-            sourceContextAnchor
-              ? {
-                  kind: "pointer",
-                  pageX: sourceContextAnchor.pageX,
-                  pageY: sourceContextAnchor.pageY,
-                }
-              : null
-          }
-          menuStyle={s.sourceMenu}
-          accessibilityLabel="Close source actions"
-          // Render from the last source while the menu animates out. Reading
-          // sourceContext directly makes its item list change mid-fade, which
-          // flashed "Edit source" into the All menu as it closed.
-          content={sourceContext}
-        >
-          {(context) => (
-            <>
-              <Pressable
-                style={s.menuItem}
-                accessibilityRole="button"
-                onPress={() => {
-                  setSourceContext(null);
-                  if (!context) return;
-                  // The menu is the confirmation: act directly, no second dialog.
-                  markSourceRead(context.id);
-                  toast(
-                    context.id === "all"
-                      ? "All stories marked as read."
-                      : `${context.title} marked as read.`,
-                  );
-                }}
-              >
-                <BookOpen size={20} color={c.ink} />
-                <Text style={s.settingTitle}>Mark all as read</Text>
-              </Pressable>
-              {context?.id === "all" ? null : (
-                <Pressable
-                  style={s.menuItem}
-                  accessibilityRole="button"
-                onPress={() => {
-                  setSourceContext(null);
-                  if (context) editSource(context);
-                }}
-              >
-                <SlidersHorizontal size={20} color={c.ink} />
-                <Text style={s.settingTitle}>Edit source</Text>
-              </Pressable>
-            )}
-            </>
-          )}
         </Dropdown>
         <MotionModal
           drawer
@@ -2547,6 +2682,25 @@ function createStyles(c: Palette, dark: boolean) {
       gap: 3,
     },
     aboutIcon: { width: 88, height: 88, borderRadius: 22, marginBottom: 8 },
+    widgetThumbnail: {
+      // Full container width. Height comes from the measured width (see
+      // widgetThumbWidth) so the 720x888 source keeps its exact ratio — a
+      // percentage width plus aspectRatio renders wrong inside this scroll
+      // content and ends up cropping the preview.
+      width: "100%",
+      borderRadius: 22,
+      marginTop: 18,
+      backgroundColor: c.surface,
+    },
+    widgetHelper: { textAlign: "center", marginTop: 18, marginBottom: 12 },
+    widgetFooter: {
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 16,
+      borderTopWidth: 1,
+      borderTopColor: c.rule,
+      backgroundColor: c.paper,
+    },
     aboutTitle: { fontFamily: f.display, color: c.ink, fontSize: 32 },
     versionBadge: {
       fontFamily: f.bold,
@@ -2715,16 +2869,13 @@ function createStyles(c: Palette, dark: boolean) {
       marginTop: 4,
       paddingBottom: 12,
     },
-    // Menu box shared by every dropdown. Position and pivot come from
-    // src/ui/Dropdown.tsx, which measures against the window.
+    // Menu box shared by every dropdown. Position + pivot come from
+    // src/ui/Dropdown.tsx. Width is content-sized there too.
     sourceMenu: {
       backgroundColor: c.paper,
       borderRadius: 18,
       padding: 8,
       boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
-      // Shrink-wrap the box. Without this it stretches to the width of the
-      // full-screen dropdown container and the reader menu spans the screen.
-      alignSelf: "flex-start",
     },
     readerMenuRule: {
       height: 1,

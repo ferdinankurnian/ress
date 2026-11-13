@@ -58,6 +58,7 @@ globalThis.fetch = (async () =>
   })) as unknown as typeof fetch;
 const bridge = await import("../../src/widget/bridge.android");
 const { keys, put, defaults } = await import("../../src/data/store");
+const { colorsFor } = await import("../../src/ui/theme");
 assert.equal(bridge.widgetAvailable, true);
 bridge.registerWidgets();
 assert.ok(task, "the Android headless task must be registered");
@@ -113,9 +114,13 @@ assert.equal(root.children[1].props.height, 0);
 assert.equal(root.children[1].props.weight, 1);
 const row = root.children[1].children[0].children[0];
 assert.equal(row.children.length, 2, "details plus square thumbnail");
-// Contract consumed by RessNativeWidget.java after library serialization.
-assert.equal(row.props.borderColor.bottom, "#DDD39B");
-assert.equal(drawings[1].dark.children[1].children[0].children[0].props.borderColor.bottom, "#3A3D31");
+// Contract consumed by RessNativeWidget.java after library serialization. Rows
+// read the active palette, so warm light is theme.color.rule.
+assert.equal(row.props.borderColor.bottom, colorsFor("light", "warm").rule);
+assert.equal(
+  drawings[1].dark.children[1].children[0].children[0].props.borderColor.bottom,
+  colorsFor("dark", "warm").rule,
+);
 assert.equal(row.props.clickActionData.uri, "ress://article?id=story");
 assert.equal(row.children[0].children[0].children.at(-1).props.text, "My source");
 assert.equal(header.children[2].children[0].type, "SvgWidget");
@@ -163,14 +168,15 @@ for (const width of [250, 300, 420]) {
     assert.equal(wideRow.children[0].children[1].props.fontWeight, "bold");
   }
 }
-for (const [scheme, paper, rule] of [["light", "#FFFFFF", "#D6D6D6"], ["dark", "#000000", "#333333"]]) {
+for (const scheme of ["light", "dark"] as const) {
+  const plain = colorsFor(scheme, "plain");
   await put(keys.settings, { ...defaults, theme: scheme, background: "plain" });
   drawings.length = 0;
   await bridge.updateWidgets();
   for (const mode of ["light", "dark"]) {
     const tree = drawings[0][mode] ?? drawings[0].light;
-    assert.equal(tree.props.backgroundColor, paper);
-    assert.equal(tree.children[1].children[0].children[0].props.borderColor.bottom, rule);
+    assert.equal(tree.props.backgroundColor, plain.paper);
+    assert.equal(tree.children[1].children[0].children[0].props.borderColor.bottom, plain.rule);
   }
 }
 await put(keys.settings, { ...defaults, theme: "dark" });

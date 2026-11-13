@@ -1,5 +1,15 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Animated, Easing, Modal, PanResponder, StyleSheet, View, useWindowDimensions } from "react-native";
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  Modal,
+  PanResponder,
+  StyleSheet,
+  View,
+  useWindowDimensions,
+} from "react-native";
+
 export function Scene({
   children,
   scene,
@@ -52,6 +62,7 @@ export function Scene({
     </Animated.View>
   );
 }
+
 export function MotionModal({
   visible,
   onClose,
@@ -187,25 +198,55 @@ export function MotionModal({
     </Modal>
   );
 }
-/** Keep a pushed page mounted until its return animation completes. */
-export function SlidePage({ visible, backgroundColor, children, testID }: {
+
+/** How far the page underneath drifts left during a push, as a fraction of width. */
+export const SLIDE_PARALLAX = 0.3;
+
+/**
+ * Keep a pushed page mounted until its return animation completes.
+ *
+ * iOS-style: the incoming page slides in from the right while the page under
+ * it drifts left by {@link SLIDE_PARALLAX}. Pass the same `progress` value to
+ * the underlay via {@link slideUnderlayX} so both layers stay in lockstep.
+ */
+export function SlidePage({
+  visible,
+  backgroundColor,
+  children,
+  testID,
+  progress: externalProgress,
+}: {
   visible: boolean;
   backgroundColor: string;
   testID?: string;
   children: React.ReactNode;
+  /** Shared 0→1 progress. Parent applies underlay parallax with this. */
+  progress?: Animated.Value;
 }) {
   const [mounted, setMounted] = useState(visible);
   const [reducedMotion, setReducedMotion] = useState(false);
   const { width } = useWindowDimensions();
-  const progress = useRef(new Animated.Value(0)).current;
+  const internalProgress = useRef(new Animated.Value(0)).current;
+  const progress = externalProgress ?? internalProgress;
+  const screen = Math.min(width, 720);
+
   useEffect(() => {
     let active = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then(value => {
-      if (active) setReducedMotion(value);
-    }).catch(() => {});
-    const listener = AccessibilityInfo.addEventListener("reduceMotionChanged", setReducedMotion);
-    return () => { active = false; listener.remove(); };
+    void AccessibilityInfo.isReduceMotionEnabled()
+      .then((value) => {
+        if (active) setReducedMotion(value);
+      })
+      .catch(() => {});
+    const listener = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReducedMotion,
+    );
+    return () => {
+      active = false;
+      listener.remove();
+    };
   }, []);
+
   useLayoutEffect(() => {
     if (visible && !mounted) {
       setMounted(true);
@@ -214,7 +255,7 @@ export function SlidePage({ visible, backgroundColor, children, testID }: {
     if (!mounted) return;
     const animation = Animated.timing(progress, {
       toValue: visible ? 1 : 0,
-      duration: reducedMotion ? 0 : visible ? 300 : 240,
+      duration: reducedMotion ? 0 : visible ? 320 : 260,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     });
@@ -223,7 +264,9 @@ export function SlidePage({ visible, backgroundColor, children, testID }: {
     });
     return () => animation.stop();
   }, [visible, mounted, progress, reducedMotion]);
+
   if (!mounted) return null;
+
   return (
     <Animated.View
       testID={testID}
@@ -232,14 +275,34 @@ export function SlidePage({ visible, backgroundColor, children, testID }: {
       accessibilityElementsHidden={!visible}
       importantForAccessibility={visible ? "auto" : "no-hide-descendants"}
       pointerEvents={visible ? "auto" : "none"}
-      style={[StyleSheet.absoluteFill, {
-        backgroundColor,
-        transform: [{ translateX: progress.interpolate({
-          inputRange: [0, 1], outputRange: [Math.min(width, 720), 0],
-        }) }],
-      }]}
+      style={[
+        StyleSheet.absoluteFill,
+        {
+          backgroundColor,
+          transform: [
+            {
+              translateX: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [screen, 0],
+              }),
+            },
+          ],
+        },
+      ]}
     >
       {children}
     </Animated.View>
   );
+}
+
+/** translateX for the page sitting under a {@link SlidePage}. */
+export function slideUnderlayX(
+  progress: Animated.Value,
+  width: number,
+): Animated.AnimatedInterpolation<string | number> {
+  const screen = Math.min(width, 720);
+  return progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -screen * SLIDE_PARALLAX],
+  });
 }

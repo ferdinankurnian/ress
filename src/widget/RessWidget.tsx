@@ -127,7 +127,7 @@ export function RessWidget({
                     marginHorizontal: 16,
                     paddingVertical: 16,
                     borderBottomWidth: index === visibleArticles.length - 1 ? 0 : 1,
-                    borderBottomColor: background === "plain" ? c.rule : scheme === "dark" ? "#3A3D31" : "#DDD39B",
+                    borderBottomColor: c.rule,
                   }}
                   clickAction="OPEN_URI"
                   clickActionData={{
