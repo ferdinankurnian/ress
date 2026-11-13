@@ -27,6 +27,7 @@ export function Dropdown({
   menuStyle,
   accessibilityLabel,
   mode = "modal",
+  content,
   children,
 }: {
   visible: boolean;
@@ -35,10 +36,20 @@ export function Dropdown({
   menuStyle?: ViewStyle;
   accessibilityLabel: string;
   mode?: "modal" | "inline";
-  children: React.ReactNode;
+  /**
+   * Data the menu items are built from. Held through the close animation so the
+   * item list cannot change while the box is still fading out.
+   */
+  content?: unknown;
+  children: React.ReactNode | ((content: any) => React.ReactNode);
 }) {
   const window = useWindowDimensions();
   const resolved = anchor ? resolveDropdownAnchor(anchor, window) : null;
+
+  const render = (value: unknown) =>
+    typeof children === "function"
+      ? (children as (content: any) => React.ReactNode)(value)
+      : children;
 
   if (mode === "inline") {
     return (
@@ -48,9 +59,9 @@ export function Dropdown({
         accessibilityLabel={accessibilityLabel}
         resolved={resolved}
         menuStyle={menuStyle}
-      >
-        {children}
-      </InlineDropdown>
+        content={content}
+        render={render}
+      />
     );
   }
 
@@ -61,9 +72,9 @@ export function Dropdown({
       accessibilityLabel={accessibilityLabel}
       resolved={resolved}
       menuStyle={menuStyle}
-    >
-      {children}
-    </ModalDropdown>
+      content={content}
+      render={render}
+    />
   );
 }
 
@@ -80,14 +91,16 @@ function ModalDropdown({
   accessibilityLabel,
   resolved,
   menuStyle,
-  children,
+  content,
+  render,
 }: {
   visible: boolean;
   onClose: () => void;
   accessibilityLabel: string;
   resolved: Resolved | null;
   menuStyle?: ViewStyle;
-  children: React.ReactNode;
+  content?: unknown;
+  render: (content: unknown) => React.ReactNode;
 }) {
   const [mounted, setMounted] = useState(visible);
   const progress = useRef(new Animated.Value(0)).current;
@@ -96,6 +109,9 @@ function ModalDropdown({
   const held = useRef<Resolved | null>(null);
   if (resolved) held.current = resolved;
   const shown = resolved ?? held.current;
+  // Same reason as the anchor: the item list must not change mid-fade.
+  const heldContent = useRef<unknown>(content);
+  if (content !== undefined) heldContent.current = content;
   useEffect(() => {
     if (visible) setMounted(true);
     Animated.timing(progress, {
@@ -137,7 +153,7 @@ function ModalDropdown({
             },
           ]}
         >
-          {children}
+          {render(heldContent.current)}
         </Animated.View>
       </Pressable>
     </Modal>
@@ -151,20 +167,24 @@ function InlineDropdown({
   accessibilityLabel,
   resolved,
   menuStyle,
-  children,
+  content,
+  render,
 }: {
   visible: boolean;
   onClose: () => void;
   accessibilityLabel: string;
   resolved: Resolved | null;
   menuStyle?: ViewStyle;
-  children: React.ReactNode;
+  content?: unknown;
+  render: (content: unknown) => React.ReactNode;
 }) {
   const [mounted, setMounted] = useState(visible);
   // The anchor must survive the fade-out, or the box jumps to a default spot.
   const held = useRef<Resolved | null>(null);
   if (resolved) held.current = resolved;
   const shown = resolved ?? held.current;
+  const heldContent = useRef<unknown>(content);
+  if (content !== undefined) heldContent.current = content;
   useEffect(() => {
     if (visible) {
       setMounted(true);
@@ -183,7 +203,7 @@ function InlineDropdown({
         accessibilityLabel={accessibilityLabel}
         onPress={onClose}
       />
-      <View style={[menuStyle, shown.style]}>{children}</View>
+      <View style={[menuStyle, shown.style]}>{render(heldContent.current)}</View>
     </View>
   );
 }

@@ -22,3 +22,14 @@ test("bar anchor clears the toolbar", () => {
   expect(r.style.right).toBe(16);
   expect(r.transformOrigin).toBe("top right");
 });
+
+test("menu pivots from the chip, not the touch point", () => {
+  // A chip at x=60..124 touched near its right edge still pivots from the icon.
+  const r = resolveDropdownAnchor({ kind: "pointer", pageX: 92, pageY: 100 }, win);
+  expect(r.style.top).toBe(108);
+  expect(r.transformOrigin.endsWith("108px")).toBe(true);
+  const pivotX = Number(r.transformOrigin.split(" ")[0].replace("px", ""));
+  // Pivot sits inside the chip's horizontal span, so the box grows out of it.
+  expect(pivotX).toBeGreaterThanOrEqual(60);
+  expect(pivotX).toBeLessThanOrEqual(124);
+});

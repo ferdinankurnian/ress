@@ -642,6 +642,11 @@ function RessApp() {
   const lastSettingsPage = useRef<SettingsPage>("Appearance");
   if (settingsPage !== "main") lastSettingsPage.current = settingsPage === "License" ? "About" : settingsPage;
   const [scrolled, setScrolled] = useState(false);
+  const pickerOffset = useRef(new Animated.Value(0)).current;
+  // Chip frames for the source context menu, measured when it opens.
+  const chipRefs = useRef(
+    new Map<string, React.ComponentRef<typeof View>>(),
+  );
   const [removing, setRemoving] = useState<Source | null>(null);
   const [removingBusy, setRemovingBusy] = useState(false);
   useEffect(() => {
@@ -1259,17 +1264,32 @@ function RessApp() {
               (source.id === "all" || a.sourceId === source.id),
           ).length;
           return (
-            <View key={source.id} style={s.sourceOptionGroup}>
+            <View
+              key={source.id}
+              style={s.sourceOptionGroup}
+              ref={(node) => {
+                // The menu must grow out of the chip, not out of the finger. A
+                // long-press reports where it was touched, which drifts with the
+                // press point; the chip's own frame is the real origin.
+                if (node) chipRefs.current.set(source.id, node);
+                else chipRefs.current.delete(source.id);
+              }}
+            >
               <ArticlePressable
                 source
                 label={source.title}
                 selected={sourceFilter === source.id}
                 onPress={() => setSourceFilter(source.id)}
-                onLongPress={(event) => {
-                  const { pageX, pageY } = event.nativeEvent;
-                  // Dropdown clamps this against the window and pivots from it.
-                  setSourceContextAnchor({ pageX, pageY });
-                  setSourceContext(source);
+                onLongPress={() => {
+                  const chip = chipRefs.current.get(source.id);
+                  chip?.measureInWindow((x, y, width) => {
+                    setSourceContextAnchor({
+                      // Center of the chip's icon ring, top of the box.
+                      pageX: x + width / 2,
+                      pageY: y,
+                    });
+                    setSourceContext(source);
+                  });
                 }}
               >
                 <View
@@ -1399,14 +1419,29 @@ function RessApp() {
               </>
             ) : null}
           </View>
+          {tab === "Feed" ? (
+            /* Outside the Scene on purpose: switching sources must not fade the
+               picker up along with the posts. It moves by following the list's
+               scroll offset instead. */
+            <Animated.View
+              style={{ transform: [{ translateY: pickerOffset }] }}
+              pointerEvents="box-none"
+            >
+              {sourcePickerBar}
+            </Animated.View>
+          ) : null}
           <Scene scene={`${tab}:${tab === "Feed" ? sourceFilter : ""}`} fade={tab === "Feed"}>
             {tab === "Feed" || tab === "Saved" ? (
               <FlatList
                 ref={feedListRef}
                 key={tab}
-                onScroll={(event) =>
-                  setScrolled(event.nativeEvent.contentOffset.y > 1)
-                }
+                onScroll={(event) => {
+                  const y = event.nativeEvent.contentOffset.y;
+                  setScrolled(y > 1);
+                  // Move the picker with the posts so it scrolls away without
+                  // being part of the fading Scene.
+                  pickerOffset.setValue(Math.min(0, -y));
+                }}
                 scrollEventThrottle={16}
                 data={visible}
                 keyExtractor={(a) => a.id}
@@ -1414,7 +1449,9 @@ function RessApp() {
                   s.feedContent,
                   !visible.length && s.emptyContent,
                 ]}
-                ListHeaderComponent={listHeader}
+                ListHeaderComponent={
+                  tab === "Saved" ? listHeader : undefined
+                }
                 refreshControl={
                   <RefreshControl
                     refreshing={busy}
@@ -2218,40 +2255,46 @@ function RessApp() {
           }
           menuStyle={s.sourceMenu}
           accessibilityLabel="Close source actions"
+          // Render from the last source while the menu animates out. Reading
+          // sourceContext directly makes its item list change mid-fade, which
+          // flashed "Edit source" into the All menu as it closed.
+          content={sourceContext}
         >
+          {(context) => (
+            <>
               <Pressable
                 style={s.menuItem}
                 accessibilityRole="button"
                 onPress={() => {
-                  const source = sourceContext;
                   setSourceContext(null);
-                  if (!source) return;
+                  if (!context) return;
                   // The menu is the confirmation: act directly, no second dialog.
-                  markSourceRead(source.id);
+                  markSourceRead(context.id);
                   toast(
-                    source.id === "all"
+                    context.id === "all"
                       ? "All stories marked as read."
-                      : `${source.title} marked as read.`,
+                      : `${context.title} marked as read.`,
                   );
                 }}
               >
                 <BookOpen size={20} color={c.ink} />
                 <Text style={s.settingTitle}>Mark all as read</Text>
               </Pressable>
-              {sourceContext?.id === "all" ? null : (
+              {context?.id === "all" ? null : (
                 <Pressable
                   style={s.menuItem}
                   accessibilityRole="button"
-                  onPress={() => {
-                    const source = sourceContext;
-                    setSourceContext(null);
-                    if (source) editSource(source);
-                  }}
-                >
-                  <SlidersHorizontal size={20} color={c.ink} />
-                  <Text style={s.settingTitle}>Edit source</Text>
-                </Pressable>
-              )}
+                onPress={() => {
+                  setSourceContext(null);
+                  if (context) editSource(context);
+                }}
+              >
+                <SlidersHorizontal size={20} color={c.ink} />
+                <Text style={s.settingTitle}>Edit source</Text>
+              </Pressable>
+            )}
+            </>
+          )}
         </Dropdown>
         <MotionModal
           drawer
@@ -2679,6 +2722,9 @@ function createStyles(c: Palette, dark: boolean) {
       borderRadius: 18,
       padding: 8,
       boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
+      // Shrink-wrap the box. Without this it stretches to the width of the
+      // full-screen dropdown container and the reader menu spans the screen.
+      alignSelf: "flex-start",
     },
     readerMenuRule: {
       height: 1,
