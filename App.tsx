@@ -1246,7 +1246,6 @@ function RessApp() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        style={s.sourcePickerBar}
         contentContainerStyle={s.sourcePicker}
       >
         {[
@@ -1320,28 +1319,34 @@ function RessApp() {
         })}
       </ScrollView>
     ) : null;
-  const listHeader =
-    tab === "Saved" ? (
-      <View
-        style={[
-          s.search,
-          { marginTop: 12, marginBottom: 12, marginHorizontal: 16 },
-        ]}
-      >
-        <Search size={20} color={c.muted} />
-        <TextInput
-          style={s.searchInput}
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search saved articles"
-          placeholderTextColor={c.muted}
-          accessibilityLabel="Search saved articles"
-        />
-        {query ? (
-          <Action icon={X} label="Clear search" onPress={() => setQuery("")} />
-        ) : null}
-      </View>
-    ) : null;
+  const listHeader = (
+    <>
+      {/* The source picker scrolls with the posts. Pinning it above the list
+          left a fixed strip that stayed put while articles moved under it. */}
+      {tab === "Feed" ? sourcePickerBar : null}
+      {tab === "Saved" ? (
+        <View
+          style={[
+            s.search,
+            { marginTop: 12, marginBottom: 12, marginHorizontal: 16 },
+          ]}
+        >
+          <Search size={20} color={c.muted} />
+          <TextInput
+            style={s.searchInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search saved articles"
+            placeholderTextColor={c.muted}
+            accessibilityLabel="Search saved articles"
+          />
+          {query ? (
+            <Action icon={X} label="Clear search" onPress={() => setQuery("")} />
+          ) : null}
+        </View>
+      ) : null}
+    </>
+  );
   // Render retained settings pages with their own page identity during push/pop.
   function renderPage(settingsPage: SettingsPage, tab: Tab) {
     return (
@@ -1394,7 +1399,6 @@ function RessApp() {
               </>
             ) : null}
           </View>
-          {sourcePickerBar}
           <Scene scene={`${tab}:${tab === "Feed" ? sourceFilter : ""}`} fade={tab === "Feed"}>
             {tab === "Feed" || tab === "Saved" ? (
               <FlatList
@@ -1410,7 +1414,7 @@ function RessApp() {
                   s.feedContent,
                   !visible.length && s.emptyContent,
                 ]}
-                ListHeaderComponent={listHeader ?? undefined}
+                ListHeaderComponent={listHeader}
                 refreshControl={
                   <RefreshControl
                     refreshing={busy}
@@ -2590,12 +2594,6 @@ function createStyles(c: Palette, dark: boolean) {
       gap: 8,
       flex: 1,
       minWidth: 0,
-    },
-    sourcePickerBar: {
-      // The picker is a fixed strip: without this the horizontal scroll view
-      // stretches over the post list and swallows swipes meant for articles.
-      flexGrow: 0,
-      flexShrink: 0,
     },
     sourcePicker: {
       gap: 12,

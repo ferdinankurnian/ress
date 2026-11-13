@@ -1,65 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Pressable, useWindowDimensions, View, type ViewStyle } from "react-native";
-import { MotionModal } from "./Motion";
-
-/** Roughly how wide a menu renders. Only used to keep menus on screen. */
-const MENU_WIDTH = 208;
-/** Half of a 64px source chip's icon, so context menus grow out of the icon. */
-const CHIP_ICON_INSET = 28;
-/** Above this a menu would run off the bottom edge. */
-const MENU_MAX_HEIGHT = 200;
-
-/** Where a dropdown is drawn. Callers describe intent; this file does the math. */
-export type DropdownAnchor =
-  /** Just under the pressed element, clamped to stay on screen. */
-  | { kind: "pointer"; pageX: number; pageY: number }
-  /** Fixed offsets, for menus pinned near a screen edge. */
-  | { kind: "fixed"; top?: number; bottom?: number; left?: number; right?: number }
-  /** An edge plus the height of the bar the menu hangs from. */
-  | {
-      kind: "bar";
-      edge: "top" | "bottom";
-      left?: number;
-      right?: number;
-      barHeight: number;
-    };
-
-type Resolved = { style: ViewStyle; transformOrigin: string };
-
-export function resolveDropdownAnchor(
-  anchor: DropdownAnchor,
-  window: { width: number; height: number },
-): Resolved {
-  if (anchor.kind === "pointer") {
-    const left = Math.max(
-      12,
-      Math.min(anchor.pageX - 20, window.width - MENU_WIDTH),
-    );
-    const top = Math.min(anchor.pageY + 8, window.height - MENU_MAX_HEIGHT);
-    return {
-      style: { top, left },
-      // Grow out of the pressed chip rather than the screen corner.
-      transformOrigin: `${left + CHIP_ICON_INSET}px ${top}px`,
-    };
-  }
-  if (anchor.kind === "bar") {
-    const { edge, barHeight, left, right } = anchor;
-    return {
-      style:
-        edge === "top"
-          ? { top: barHeight + 4, left, right }
-          : { bottom: barHeight + 4, left, right },
-      transformOrigin: `${edge} ${right === undefined ? "left" : "right"}`,
-    };
-  }
-  const { top, bottom, left, right } = anchor;
-  return {
-    style: { top, bottom, left, right },
-    transformOrigin: `${bottom === undefined ? "top" : "bottom"} ${
-      right === undefined ? "left" : "right"
-    }`,
-  };
-}
+import {
+  Animated,
+  Easing,
+  Modal,
+  Pressable,
+  useWindowDimensions,
+  View,
+  type ViewStyle,
+} from "react-native";
+import { resolveDropdownAnchor, type DropdownAnchor, type Resolved } from "./dropdownAnchor";
 
 /**
  * One dropdown surface for the whole app: a dismiss backdrop, a menu box the
@@ -90,38 +39,108 @@ export function Dropdown({
 }) {
   const window = useWindowDimensions();
   const resolved = anchor ? resolveDropdownAnchor(anchor, window) : null;
-  // Hold the last anchor through the close animation. Dropping it early sends
-  // the menu back to the backdrop's static origin mid-flight.
-  const held = useRef<Resolved | null>(null);
-  if (resolved) held.current = resolved;
-  const shown = resolved ?? held.current;
-
-  const menu = (
-    <View style={[menuStyle, shown?.style]}>{children}</View>
-  );
 
   if (mode === "inline") {
     return (
-      <InlineDropdown visible={visible} onClose={onClose} accessibilityLabel={accessibilityLabel}>
-        {menu}
+      <InlineDropdown
+        visible={visible}
+        onClose={onClose}
+        accessibilityLabel={accessibilityLabel}
+        resolved={resolved}
+        menuStyle={menuStyle}
+      >
+        {children}
       </InlineDropdown>
     );
   }
 
   return (
-    <MotionModal
+    <ModalDropdown
       visible={visible}
       onClose={onClose}
-      transformOrigin={shown?.transformOrigin}
+      accessibilityLabel={accessibilityLabel}
+      resolved={resolved}
+      menuStyle={menuStyle}
     >
+      {children}
+    </ModalDropdown>
+  );
+}
+
+/**
+ * Full-screen dismiss target with the menu box animating on its own.
+ *
+ * The menu must be the thing that scales, not a full-screen wrapper: scaling a
+ * wrapper rotates the box around a screen-wide pivot and drags it off its
+ * anchor. The wrapper here is static; only the box pops.
+ */
+function ModalDropdown({
+  visible,
+  onClose,
+  accessibilityLabel,
+  resolved,
+  menuStyle,
+  children,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  accessibilityLabel: string;
+  resolved: Resolved | null;
+  menuStyle?: ViewStyle;
+  children: React.ReactNode;
+}) {
+  const [mounted, setMounted] = useState(visible);
+  const progress = useRef(new Animated.Value(0)).current;
+  // Hold the last anchor through the close animation so the box does not jump
+  // to a default position while it is still fading out.
+  const held = useRef<Resolved | null>(null);
+  if (resolved) held.current = resolved;
+  const shown = resolved ?? held.current;
+  useEffect(() => {
+    if (visible) setMounted(true);
+    Animated.timing(progress, {
+      toValue: visible ? 1 : 0,
+      duration: visible ? 180 : 140,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+      isInteraction: false,
+    }).start(({ finished }) => {
+      if (finished && !visible) setMounted(false);
+    });
+  }, [visible, progress]);
+  if (!mounted || !shown) return null;
+  return (
+    <Modal transparent visible animationType="none" onRequestClose={onClose}>
       <Pressable
-        style={{ flex: 1, backgroundColor: "transparent" }}
+        style={{ flex: 1 }}
         onPress={onClose}
         accessibilityLabel={accessibilityLabel}
       >
-        {menu}
+        {/* The animated element is the box itself, shrink-wrapped at the
+            anchor, so scaling cannot drag it off position. The backdrop
+            above stays static to catch dismissal taps. */}
+        <Animated.View
+          style={[
+            menuStyle,
+            { position: "absolute", opacity: progress },
+            shown.style,
+            {
+              transform: [
+                {
+                  scale: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.9, 1],
+                  }),
+                },
+              ],
+              transformOrigin: shown.transformOrigin,
+            },
+          ]}
+        >
+          {children}
+        </Animated.View>
       </Pressable>
-    </MotionModal>
+    </Modal>
   );
 }
 
@@ -130,14 +149,22 @@ function InlineDropdown({
   visible,
   onClose,
   accessibilityLabel,
+  resolved,
+  menuStyle,
   children,
 }: {
   visible: boolean;
   onClose: () => void;
   accessibilityLabel: string;
+  resolved: Resolved | null;
+  menuStyle?: ViewStyle;
   children: React.ReactNode;
 }) {
   const [mounted, setMounted] = useState(visible);
+  // The anchor must survive the fade-out, or the box jumps to a default spot.
+  const held = useRef<Resolved | null>(null);
+  if (resolved) held.current = resolved;
+  const shown = resolved ?? held.current;
   useEffect(() => {
     if (visible) {
       setMounted(true);
@@ -147,7 +174,7 @@ function InlineDropdown({
     const timer = setTimeout(() => setMounted(false), 200);
     return () => clearTimeout(timer);
   }, [visible]);
-  if (!mounted) return null;
+  if (!mounted || !shown) return null;
   return (
     <View style={{ position: "absolute", inset: 0 }} pointerEvents="box-none">
       <Pressable
@@ -156,7 +183,7 @@ function InlineDropdown({
         accessibilityLabel={accessibilityLabel}
         onPress={onClose}
       />
-      {children}
+      <View style={[menuStyle, shown.style]}>{children}</View>
     </View>
   );
 }
